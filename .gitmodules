@@ -1,3 +1,4 @@
 [submodule "SCTL"]
 	path = SCTL
 	url = https://github.com/dmalhotra/SCTL.git
+	branch = master
