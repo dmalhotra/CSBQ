@@ -3,7 +3,7 @@
 using namespace sctl;
 
 template <class Real> void double_layer_test() { // Double-layer identity test
-    Vector<SlenderElement<Real>> elem_lst0(8);
+  Vector<SlenderElement<Real>> elem_lst0(8);  // num of panels
     for (sctl::Long k = 0; k < elem_lst0.Dim(); k++) { // Init elem_lst0
       const auto& nds = SlenderElement<Real>::CenterlineNodes();
       Vector<Real> coord(nds.Dim()*3), radius(nds.Dim());
@@ -22,12 +22,12 @@ template <class Real> void double_layer_test() { // Double-layer identity test
     LapDL.AddElemList(elem_lst0);
 
     // Warm-up run
-    Vector<Real> F(LapDL.Dim(0)), U; F = 1;
+    Vector<Real> F(LapDL.Dim(0)), U; F = 1;  // density = 1 everywhere.
     LapDL.ComputePotential(U,F);
 
     sctl::Profile::Enable(true);
     Profile::Tic("Setup+Eval");
-    LapDL.ClearSetup();
+    LapDL.ClearSetup();                // clears precomputed static storage
     LapDL.ComputePotential(U,F);
     Profile::Toc();
 
