@@ -58,10 +58,10 @@ template <class Real, class Kernel> void double_layer_test() { // Double-layer i
 
 int main(int argc, char** argv) {
   std::cout<<"\n\n###########  DOUBLE-LAYER IDENTITY TEST WITH STOKES KERNEL  ############\n";
-  double_layer_test<double, GenericKernel<Stokes3D_DxU>>();
+  double_layer_test<double, Stokes3D_DxU>();
 
   std::cout<<"\n\n###########  DOUBLE-LAYER IDENTITY TEST WITH LAPLACE KERNEL  ###########\n";
-  double_layer_test<double, GenericKernel<Laplace3D_DxU>>();
+  double_layer_test<double, Laplace3D_DxU>();
 
   // SlenderElemList<double>::test_greens_identity();
 

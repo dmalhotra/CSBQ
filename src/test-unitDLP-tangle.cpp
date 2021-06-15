@@ -60,8 +60,8 @@ template <class Real> void double_layer_test() { // Double-layer identity test
      elem_lst0.Init(cheb_order, fourier_order, coord, radius);     // send coords into this pan
    }
 
-    GenericKernel<sctl::Laplace3D_DxU> laplace_dl;
-    BoundaryIntegralOp<Real,GenericKernel<sctl::Laplace3D_DxU>> LapDL(laplace_dl);
+    Laplace3D_DxU laplace_dl;
+    BoundaryIntegralOp<Real,Laplace3D_DxU> LapDL(laplace_dl);
     LapDL.AddElemList(elem_lst0);
 
     // Warm-up run
