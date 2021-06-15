@@ -42,7 +42,8 @@ INCDIR = ./include
 
 TARGET_BIN = \
        $(BINDIR)/slenderbody \
-       $(BINDIR)/test-unitDLP-tangle
+       $(BINDIR)/test-unitDLP-tangle \
+       $(BINDIR)/bvp-solve
 
 all : $(TARGET_BIN)
 
