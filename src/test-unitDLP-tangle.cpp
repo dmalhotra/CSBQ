@@ -6,7 +6,9 @@
 
 using namespace sctl;
 
-template <class Real> void double_layer_test() { // Double-layer identity test
+template <class Real> void double_layer_test(const Comm& comm = Comm::World()) { // Double-layer identity test
+  const Long pid = comm.Rank();
+  const Long Np = comm.Size();
 
   std::default_random_engine g;
   g.seed(0);         // fix random seed
@@ -29,7 +31,9 @@ template <class Real> void double_layer_test() { // Double-layer identity test
 
     Vector<Real> coord, radius;
     Vector<Long> cheb_order, fourier_order;
-    for (sctl::Long k = 0; k < npan; k++) {   // loop over panels...
+    const Long k0 = npan*(pid+0)/Np;
+    const Long k1 = npan*(pid+1)/Np;
+    for (sctl::Long k = k0; k < k1; k++) {   // loop over panels...
       cheb_order.PushBack(elem_cheb_order);
       fourier_order.PushBack(elem_fourier_order);
 
@@ -59,35 +63,33 @@ template <class Real> void double_layer_test() { // Double-layer identity test
     }
     elem_lst0.Init(cheb_order, fourier_order, coord, radius);     // send coords into this pan
   }
+  //elem_lst0.Read("data/tangle-adap.geom", comm);
 
   Laplace3D_DxU laplace_dl;
-  BoundaryIntegralOp<Real,Laplace3D_DxU> LapDL(laplace_dl);
+  BoundaryIntegralOp<Real,Laplace3D_DxU> LapDL(laplace_dl, comm);
   LapDL.AddElemList(elem_lst0);
   LapDL.SetAccuracy(1e-10);
 
   // Warm-up run
   Vector<Real> F(LapDL.Dim(0)), U; F = 1;
   LapDL.ComputePotential(U,F);
+  LapDL.ClearSetup();
+  U = 0;
 
   sctl::Profile::Enable(true);
-  Profile::Tic("Setup+Eval");
-  LapDL.ClearSetup();
-  LapDL.ComputePotential(U,F);
-  Profile::Toc();
-
-  U = 0;
-  Profile::Tic("Eval");
+  Profile::Tic("Setup+Eval", &comm);
   LapDL.ComputePotential(U,F);
   Profile::Toc();
 
   Vector<Real> Uerr = U + 0.5;
-  elem_lst0.WriteVTK("tangleUerr", Uerr); // Write VTK
+  elem_lst0.WriteVTK("tangleUerr", Uerr, comm); // Write VTK
   { // Print error
-    Real max_err = 0;
-    for (auto x : Uerr) max_err = std::max<Real>(max_err, fabs(x));
-    std::cout<<"Error = "<<max_err<<'\n';
+    StaticArray<Real,2> max_err{0,0};
+    for (auto x : Uerr) max_err[0] = std::max<Real>(max_err[0], fabs(x));
+    comm.Allreduce(max_err+0, max_err+1, 1, Comm::CommOp::MAX);
+    if (!pid) std::cout<<"Error = "<<max_err[1]<<'\n';
   }
-  sctl::Profile::print();
+  sctl::Profile::print(&comm);
 }
 
 int main(int argc, char** argv) {
