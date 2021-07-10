@@ -63,6 +63,7 @@ template <class Real> void double_layer_test() { // Double-layer identity test
     Laplace3D_DxU laplace_dl;
     BoundaryIntegralOp<Real,Laplace3D_DxU> LapDL(laplace_dl);
     LapDL.AddElemList(elem_lst0);
+    LapDL.SetAccuracy(1e-10);
 
     // Warm-up run
     Vector<Real> F(LapDL.Dim(0)), U; F = 1;
@@ -90,7 +91,11 @@ template <class Real> void double_layer_test() { // Double-layer identity test
   }
 
 int main(int argc, char** argv) {
+  Comm::MPI_Init(&argc, &argv);
+
   double_layer_test<double>();
+
+  Comm::MPI_Finalize();
   return 0;
 }
 
