@@ -2,6 +2,7 @@ SCTL_INCLUDE_DIR = SCTL/include
 
 CXX=g++-9
 #CXX=g++
+
 CXXFLAGS = -std=c++11 -fopenmp -Wall -Wfloat-conversion # need C++11 and OpenMP
 
 #Optional flags
@@ -20,8 +21,8 @@ CXXFLAGS += -DSCTL_QUAD_T=__float128 # Enable quadruple precision
 
 #CXXFLAGS += -DSCTL_HAVE_MPI #use MPI
 
-# really one of these should work! but without any, SCTL uses own implementations...
-#CXXFLAGS += -L/usr/lib/libblas/ -L/usr/lib/openblas-base/ -lopenblas -DSCTL_HAVE_BLAS # use BLAS
+# for Alex laptop blas not found, weirdly..
+#CXXFLAGS += -lopenblas -DSCTL_HAVE_BLAS # use BLAS
 #CXXFLAGS += -lblas -DSCTL_HAVE_BLAS # use BLAS
 #CXXFLAGS += -llapack -DSCTL_HAVE_LAPACK # use LAPACK
 #CXXFLAGS += -mkl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK # use MKL BLAS and LAPACK
@@ -40,7 +41,9 @@ OBJDIR = ./obj
 INCDIR = ./include
 
 TARGET_BIN = \
-       $(BINDIR)/slenderbody
+       $(BINDIR)/slenderbody \
+       $(BINDIR)/test-unitDLP-tangle \
+       $(BINDIR)/bvp-solve
 
 all : $(TARGET_BIN)
 
