@@ -115,6 +115,17 @@ template <class Real, class KerSL, class KerDL> Vector<Real> bvp_solve(const Sle
   DLOp.AddElemList(elem_lst0);
   SLOp.SetAccuracy(tol);
   DLOp.SetAccuracy(tol);
+
+  { // Warmup
+    bool prof_enable = Profile::Enable(false);
+    Vector<Real> F(SLOp.Dim(0)), U; F = 1;
+    SLOp.ComputePotential(U,F);
+    DLOp.ComputePotential(U,F);
+    SLOp.ClearSetup();
+    DLOp.ClearSetup();
+    Profile::Enable(prof_enable);
+  }
+
   auto BIOp = [&SLOp,&DLOp,&SLScaling](Vector<Real>* Ax, const Vector<Real>& x){
     Vector<Real> Usl, Udl;
     SLOp.ComputePotential(Usl,x);
@@ -128,8 +139,10 @@ template <class Real, class KerSL, class KerDL> Vector<Real> bvp_solve(const Sle
     V0.ReInit(N);
     V0 = 1;
   }
+  Profile::Tic("Solve", &comm, true);
   ParallelSolver<Real> solver(comm);
   solver(&sigma, BIOp, V0, gmres_tol);
+  Profile::Toc();
   elem_lst0.WriteVTK("vis/sigma", sigma, comm);
 
   Vector<Real> Utrg;
@@ -364,11 +377,23 @@ template <class Real> class CubeVolumeVis {
 
     CubeVolumeVis() = default;
 
-    CubeVolumeVis(const Long N_, Real L) : N(N_) {
-      coord.ReInit(pow<COORD_DIM,Long>(N) * COORD_DIM);
-      for (Long i = 0; i < coord.Dim()/COORD_DIM; i++) {
-        for (Long k = 0; k < COORD_DIM; k++) {
-          coord[i*COORD_DIM+k] = (((i/pow<Long>(N,k)) % N)/(Real)(N-1)*2 - 1) * L;
+    CubeVolumeVis(const Long N_, Real L, const Comm& comm = Comm::Self()) : N(N_) {
+      const Long pid = comm.Rank();
+      const Long Np = comm.Size();
+
+      const Long NN = pow<COORD_DIM-1,Long>(N);
+      const Long a = (N-1)*(pid+0)/Np;
+      const Long b = (N-1)*(pid+1)/Np;
+      N0 = b-a+1;
+      if (N0<2) return;
+
+      coord.ReInit(N0 * NN * COORD_DIM);
+      for (Long i = 0; i < N0; i++) {
+        for (Long j = 0; j < NN; j++) {
+          for (Long k = 0; k < COORD_DIM; k++) {
+            Long idx = ((i+a)*NN+j);
+            coord[(i*NN+j)*COORD_DIM+k] = (((idx/pow<Long>(N,k)) % N)/(Real)(N-1)*2 - 1) * L;
+          }
         }
       }
     }
@@ -380,7 +405,7 @@ template <class Real> class CubeVolumeVis {
     void GetVTUData(VTUData& vtu_data, const Vector<Real>& F) const {
       for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
       for (const auto& x :     F) vtu_data.value.PushBack((float)x);
-      for (Long i = 0; i < N-1; i++) {
+      for (Long i = 0; i < N0-1; i++) {
         for (Long j = 0; j < N-1; j++) {
           for (Long k = 0; k < N-1; k++) {
             auto idx = [this](Long i, Long j, Long k) {
@@ -408,7 +433,7 @@ template <class Real> class CubeVolumeVis {
 
   private:
 
-    Long N;
+    Long N, N0;
     Vector<Real> coord;
 };
 
