@@ -16,6 +16,7 @@ else
 endif
 
 CXXFLAGS += -DSCTL_PROFILE=5 -DSCTL_VERBOSE # Enable profiling
+#CXXFLAGS += -DSCTL_MEMDEBUG # Enable memory checks
 
 CXXFLAGS += -DSCTL_QUAD_T=__float128 # Enable quadruple precision
 
@@ -30,6 +31,8 @@ CXXFLAGS += -DSCTL_QUAD_T=__float128 # Enable quadruple precision
 CXXFLAGS += -lfftw3 -DSCTL_HAVE_FFTW
 CXXFLAGS += -lfftw3f -DSCTL_HAVE_FFTWF
 CXXFLAGS += -lfftw3l -DSCTL_HAVE_FFTWL
+
+#CXXFLAGS += -DSCTL_HAVE_SVML
 
 
 RM = rm -f
