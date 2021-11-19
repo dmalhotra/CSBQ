@@ -10,7 +10,7 @@ template <class Real, class Kernel> void double_layer_test(const SlenderElemList
   const Long pid = comm.Rank();
 
   Kernel ker_fn;
-  BoundaryIntegralOp<Real,Kernel> BIOp(ker_fn, comm);
+  BoundaryIntegralOp<Real,Kernel> BIOp(ker_fn, false, comm);
   BIOp.AddElemList(elem_lst0);
   BIOp.SetAccuracy(tol);
 
@@ -44,8 +44,8 @@ template <class Real, class KerSL, class KerDL, class KerGrad> void test_greens_
   KerSL kernel_sl;
   KerDL kernel_dl;
   KerGrad kernel_grad;
-  BoundaryIntegralOp<Real,KerSL> BIOpSL(kernel_sl, comm);
-  BoundaryIntegralOp<Real,KerDL> BIOpDL(kernel_dl, comm);
+  BoundaryIntegralOp<Real,KerSL> BIOpSL(kernel_sl, false, comm);
+  BoundaryIntegralOp<Real,KerDL> BIOpDL(kernel_dl, false, comm);
   BIOpSL.AddElemList(elem_lst0);
   BIOpDL.AddElemList(elem_lst0);
   BIOpSL.SetAccuracy(tol);
@@ -109,8 +109,8 @@ template <class Real, class KerSL, class KerDL, class KerGrad> void test_greens_
 template <class Real, class KerSL, class KerDL> Vector<Real> bvp_solve(const SlenderElemList<Real>& elem_lst0, const Real tol, const Real gmres_tol, const Real SLScaling = 1.0, Vector<Real> V0 = Vector<Real>(), const Vector<Real> Xt = Vector<Real>(), const Comm& comm = Comm::World()) { // Solve exterior Dirichlet BVP: (1/2 + D + S * SLScaling) sigma = V0
   KerSL ker_sl;
   KerDL ker_dl;
-  BoundaryIntegralOp<Real,KerSL> SLOp(ker_sl, comm);
-  BoundaryIntegralOp<Real,KerDL> DLOp(ker_dl, comm);
+  BoundaryIntegralOp<Real,KerSL> SLOp(ker_sl, false, comm);
+  BoundaryIntegralOp<Real,KerDL> DLOp(ker_dl, false, comm);
   SLOp.AddElemList(elem_lst0);
   DLOp.AddElemList(elem_lst0);
   SLOp.SetAccuracy(tol);
@@ -246,11 +246,11 @@ template <class Real> void GeomTorus(SlenderElemList<Real>& elem_lst0, Vector<Re
   const Long k1 = npan*(pid+1)/Np;
 
   { // Set elem_lst0
-    auto loop_geom = [](Real& x, Real& y, Real& z, Real& r, const Real theta){
+    auto loop_geom = [&thickness](Real& x, Real& y, Real& z, Real& r, const Real theta){
       x = cos<Real>(theta);
       y = sin<Real>(theta);
       z = 0.1*sin<Real>(theta-sqrt<Real>(2));
-      r = 0.01*(2+sin<Real>(theta+sqrt<Real>(2)));
+      r = thickness*(2+sin<Real>(theta+sqrt<Real>(2)));
     };
     Vector<Real> panel_dsp(npan); panel_dsp = 0;
     omp_par::scan(panel_len.begin(), panel_dsp.begin(), npan);
