@@ -71,7 +71,7 @@ template <class Real> class RigidGeom {
 
     RigidGeom(const Comm& comm) : comm_(comm) {
       const Long Nobj = 2;
-      const Long Npanel = 32;
+      const Long Npanel = 64;
 
       obj_elem_cnt.ReInit(Nobj);
       obj_elem_cnt = Npanel;
@@ -81,7 +81,7 @@ template <class Real> class RigidGeom {
       FourierOrder.ReInit(Nobj * Npanel);
       ChebOrder.ReInit(Nobj * Npanel);
       panel_len = 1/(Real)Npanel;
-      FourierOrder = 14;
+      FourierOrder = 16;
       ChebOrder = 10;
       Real separation  = 2.0;
       InitGeom(X, R, obj_elem_cnt, ChebOrder, panel_len, separation);
@@ -101,185 +101,6 @@ template <class Real> class RigidGeom {
       return LocFourierOrder;
     }
 
-    [[deprecated]]
-    void RigidBodyUpdate_(const Vector<Real>& U_loc, const Real dt) { // deprecated
-      auto cross_prod = [](StaticArray<Real,COORD_DIM>& AxB, const StaticArray<Real,COORD_DIM>& A, const StaticArray<Real,COORD_DIM>& B) {
-        AxB[0] = A[1]*B[2] - A[2]*B[1];
-        AxB[1] = A[2]*B[0] - A[0]*B[2];
-        AxB[2] = A[0]*B[1] - A[1]*B[0];
-      };
-
-      Vector<Long> node_obj_idx;
-      Vector<Long> obj_elem_dsp(obj_elem_cnt.Dim()); obj_elem_dsp = 0;
-      GetNodeObjIdx(node_obj_idx, elem_lst, obj_elem_cnt, comm_);
-      omp_par::scan(obj_elem_cnt.begin(), obj_elem_dsp.begin(), obj_elem_cnt.Dim());
-      const Long Nloc = node_obj_idx.Dim();
-      const Long Nobj = obj_elem_cnt.Dim();
-
-      Vector<Long> node_cnt, node_dsp;
-      Vector<Real> U, Uc, X0, X_loc, Xc, area;
-      {
-        Vector<Long> node_cnt_loc;
-        RigidBodyMotionProj(U, U_loc);
-        elem_lst.GetNodeCoord(&X_loc, nullptr, &node_cnt_loc);
-        ObjIntegral(Xc, X_loc, elem_lst, obj_elem_cnt, comm_);
-        ObjIntegral(Uc, U_loc, elem_lst, obj_elem_cnt, comm_);
-        ObjIntegral(area, X_loc*0+1, elem_lst, obj_elem_cnt, comm_);
-        X0 = Allgather(X_loc, comm_);
-        U = Allgather(U, comm_);
-        Uc /= area;
-        Xc /= area;
-
-        node_cnt = Allgather(node_cnt_loc, comm_);
-        node_dsp.ReInit(node_cnt.Dim()); node_dsp = 0;
-        omp_par::scan(node_cnt.begin(), node_dsp.begin(), node_cnt.Dim());
-      }
-
-
-      Vector<Real> Ur_loc(Nloc * COORD_DIM);
-      for (Long i = 0; i < Nloc; i++) {
-        const Long obj = node_obj_idx[i];
-        for (Long k = 0; k < COORD_DIM; k++) {
-          Ur_loc[i*COORD_DIM+k] = U_loc[i*COORD_DIM+k] - Uc[obj*COORD_DIM+k];
-        }
-      }
-      Vector<Real> Ur = Allgather(Ur_loc, comm_);
-      Vector<Real> X  = Allgather( X_loc, comm_);
-
-      Vector<Real> Omega_c(Nobj*COORD_DIM);
-      for (Long obj = 0; obj < Nobj; obj++) { // Compute Omega_c
-        StaticArray<Real, COORD_DIM> Omega_orient;
-        { // Compute Omega_orient
-          Matrix<Real> M(3,3), U, S, Vt; M = 0;
-          for (Long i = 0; i < obj_elem_cnt[obj]; i++) {
-            const Long elem = obj_elem_dsp[obj]+i;
-            for (Long j = 0; j < node_cnt[elem]; j++) {
-              const Long node_idx = node_dsp[elem] + j;
-              for (Long k0 = 0; k0 < COORD_DIM; k0++) {
-                for (Long k1 = 0; k1 < COORD_DIM; k1++) {
-                  M[k0][k1] += Ur[node_idx*COORD_DIM+k0] * Ur[node_idx*COORD_DIM+k1];
-                }
-              }
-            }
-          }
-          M.SVD(U, S, Vt);
-
-          Long min_idx = 0;
-          Real min_val = fabs(S[0][0]);
-          for (Long k = 0; k < COORD_DIM; k++) {
-            if (fabs(S[k][k]) < min_val) {
-              min_val = fabs(S[k][k]);
-              min_idx = k;
-            }
-          }
-          for (Long k = 0; k < COORD_DIM; k++) {
-            Omega_orient[k] = U[k][min_idx];
-          }
-        }
-
-        Real V_dot_U = 0, V_dot_V = 0;
-        for (Long i = 0; i < obj_elem_cnt[obj]; i++) {
-          const Long elem = obj_elem_dsp[obj]+i;
-          for (Long j = 0; j < node_cnt[elem]; j++) {
-            const Long node_idx = node_dsp[elem] + j;
-
-            StaticArray<Real,COORD_DIM> R, V;
-            for (Long k = 0; k < COORD_DIM; k++) {
-              R[k] = X[node_idx*COORD_DIM+k] - Xc[obj*COORD_DIM+k];
-            }
-            cross_prod(V, Omega_orient, R);
-
-            for (Long k = 0; k < COORD_DIM; k++) {
-              V_dot_U += Ur[node_idx*COORD_DIM+k] * V[k];
-              V_dot_V += V[k] * V[k];
-            }
-          }
-        }
-        for (Long k = 0; k < COORD_DIM; k++) {
-          Omega_c[obj*COORD_DIM+k] = Omega_orient[k] * V_dot_U/V_dot_V;
-        }
-      }
-
-
-      Vector<Real> Y(U.Dim());
-      for (Long obj = 0; obj < obj_elem_cnt.Dim(); obj++) {
-        StaticArray<Real,COORD_DIM> omega;
-        for (Long k = 0; k < COORD_DIM; k++) omega[k] = Omega_c[obj*COORD_DIM+k];
-
-        Matrix<Real> Mr;
-        { // Build rotation matrix Mr
-          Matrix<Real> P1(3,3), P2(3,3), R(3,3), W0(1,3, omega), W1, W2;
-          W0 *= dt;
-
-          Real theta = atan2(W0[0][1], W0[0][0]);
-          P1[0][0] = cos<Real>(theta); P1[0][1] =-sin<Real>(theta); P1[0][2] = 0;
-          P1[1][0] = sin<Real>(theta); P1[1][1] = cos<Real>(theta); P1[1][2] = 0;
-          P1[2][0] =                0; P1[2][1] =                0; P1[2][2] = 1;
-          W1 = W0 * P1;
-
-          Real phi = atan2(W1[0][2], W1[0][0]);
-          P2[0][0] = cos<Real>(phi); P2[0][1] = 0; P2[0][2] =-sin<Real>(phi);
-          P2[1][0] =              0; P2[1][1] = 1; P2[1][2] =              0;
-          P2[2][0] = sin<Real>(phi); P2[2][1] = 0; P2[2][2] = cos<Real>(phi);
-          W2 = W1 * P2;
-
-          Real w = W2[0][0];
-          R[0][0] = 1; R[0][1] =            0; R[0][2] =            0;
-          R[1][0] = 0; R[1][1] = cos<Real>(w); R[1][2] = sin<Real>(w);
-          R[2][0] = 0; R[2][1] =-sin<Real>(w); R[2][2] = cos<Real>(w);
-
-          Mr = P1 * P2 * R * P2.Transpose() * P1.Transpose();
-        }
-
-        for (Long i = 0; i < obj_elem_cnt[obj]; i++) { // Update Y
-          const Long elem = obj_elem_dsp[obj]+i;
-          for (Long j = 0; j < node_cnt[elem]; j++) {
-            const Long node_idx = node_dsp[elem] + j;
-
-            StaticArray<Real,COORD_DIM> dR;
-            StaticArray<Real,COORD_DIM> Mr_dR;
-            for (Long k = 0; k < COORD_DIM; k++) {
-              dR[k] = X0[node_idx*COORD_DIM+k] - Xc[obj*COORD_DIM+k];
-            }
-            Matrix<Real> dR_(1,COORD_DIM, dR, false);
-            Matrix<Real> Mr_dR_(1,COORD_DIM, Mr_dR, false);
-            Matrix<Real>::GEMM(Mr_dR_, dR_, Mr);
-
-            for (Long k = 0; k < COORD_DIM; k++) {
-              Y[node_idx*COORD_DIM+k] = Xc[obj*COORD_DIM+k] + Uc[obj*COORD_DIM+k]*dt + Mr_dR[k];
-            }
-          }
-        }
-      }
-
-      Vector<Real> Uerr;
-      { // Set Uerr
-        Vector<Real> U0;
-        RigidBodyVelocity(U0, Uc, Omega_c, elem_lst, obj_elem_cnt, comm_);
-        Uerr = Allgather(U0 - U_loc, comm_);// - U;
-
-        //Vector<Real> U1;
-        //RigidBodyMotionProj(U1, U_loc);
-        //Uerr = Allgather(U1, comm_) - U;
-
-        //Uerr = U0-U1;
-      }
-      if (!comm_.Rank()) { // Print error
-        Real max_err = 0;
-        Real max_val = 0;
-        for (const auto& a : Uerr) max_err = std::max<Real>(max_err, fabs(a));
-        for (const auto& a : U  ) max_val = std::max<Real>(max_val, fabs(a));
-        std::cout<<"Stokes err : "<<max_err/max_val<<'\n';
-      } else {
-        Uerr.ReInit(0);
-      }
-      comm_.PartitionN(Uerr, U_loc.Dim());
-      elem_lst.WriteVTK("vis/Uerr", Uerr, comm_); // Write VTK
-
-      if (comm_.Rank()) Y.ReInit(0);
-      comm_.PartitionN(Y, U_loc.Dim());
-      UpdatePointwise(Y);
-    }
     void RigidBodyUpdate(const Vector<Real>& U_loc_, const Real dt) {
       //TODO: remove all Allgather and parallelize correctly
       auto cross_prod = [](StaticArray<Real,COORD_DIM>& AxB, const StaticArray<Real,COORD_DIM>& A, const StaticArray<Real,COORD_DIM>& B) {
@@ -433,7 +254,7 @@ template <class Real> class RigidGeom {
         for (const auto& a : U   ) max_val = std::max<Real>(max_val, fabs(a));
         for (const auto& a : Uerr) max_err = std::max<Real>(max_err, fabs(a));
         if (!comm_.Rank()) std::cout<<"Stokes err : "<<max_err/max_val<<'\n';
-        elem_lst.WriteVTK("vis/Uerr0", U_loc_-U0, comm_); // Write VTK
+        //elem_lst.WriteVTK("vis/Uerr0", U_loc_-U0, comm_); // Write VTK
       }
       UpdatePointwise(Y_loc);
     }
@@ -506,7 +327,7 @@ template <class Real> class RigidGeom {
       }
     }
 
-    void RigidBodyMotionProj(Vector<Real>& u_proj, const Vector<Real>& u) {
+    void RigidBodyMotionProj(Vector<Real>& u_proj, const Vector<Real>& u) const {
       auto inner_prod = [this](const Vector<Real>& A, const Vector<Real>& B) {
         SCTL_ASSERT(A.Dim() == B.Dim());
         Vector<Real> AB(A.Dim()), IntegralAB;
@@ -860,182 +681,35 @@ template <class Real> class RigidGeom {
     SlenderElemList<Real> elem_lst;
 };
 
-template <class Real> class Mobility_ {
-  public:
-
-    Mobility_(const Comm& comm) : comm_(comm), BIOp_StokesFxU(ker_FxU, false, comm), BIOp_StokesFxT(ker_FxT, true, comm), BIOp_StokesDxU(ker_DxU, false, comm) {
-      BIOp_StokesFxT.SetFMMKer(ker_FxUP, ker_FxUP, ker_FxT, ker_FxUP, ker_FxUP, ker_FxT, ker_FxUP, ker_FxT);
-      BIOp_StokesDxU.SetFMMKer(ker_DxU, ker_DxU, ker_DxU, ker_FSxU, ker_FSxU, ker_FSxU, ker_FxU, ker_FxU);
-    }
-
-    Vector<Real> ComputeVelocity(const RigidGeom<Real>& geom, const Vector<Real>& Ubg, const Vector<Real>& Tbg, const Real tol = 1e-8, const Real quad_tol = 1e-14) const {
-      Vector<Real> Xn;
-      const SlenderElemList<Real>& elem_lst0 = geom.GetElemList();
-      elem_lst0.GetNodeCoord(nullptr, &Xn, nullptr);
-
-      BIOp_StokesFxU.AddElemList(elem_lst0);
-      BIOp_StokesFxT.AddElemList(elem_lst0);
-      BIOp_StokesFxU.SetAccuracy(quad_tol);
-      BIOp_StokesFxT.SetAccuracy(quad_tol);
-
-      if (1) { ////////////////////////////////////////////////////
-        auto dot_prod = [](const Vector<Real>& Y, const Vector<Real>& Xn) {
-          const Long N = Xn.Dim()/3;
-          if (!N) return Vector<Real>();
-          const Long dof = Y.Dim()/N/3;
-          SCTL_ASSERT(Y.Dim() == N*dof*3);
-
-          Vector<Real> Y_dot_Xn;
-          for (Long i = 0; i < N; i++) {
-            for (Long k = 0; k < dof; k++) {
-              Real y_dot_xn = 0;
-              y_dot_xn += Y[(i*dof+k)*3+0] * Xn[i*3+0];
-              y_dot_xn += Y[(i*dof+k)*3+1] * Xn[i*3+1];
-              y_dot_xn += Y[(i*dof+k)*3+2] * Xn[i*3+2];
-              Y_dot_Xn.PushBack(y_dot_xn);
-            }
-          }
-          return Y_dot_Xn;
-        };
-
-        BoundaryIntegralOp<Real,Stokes3D_FxT> BIOp_StokesFxT_(ker_FxT, false, comm_);
-        BIOp_StokesFxT_.SetFMMKer(ker_FxUP, ker_FxUP, ker_FxT, ker_FxUP, ker_FxUP, ker_FxT, ker_FxUP, ker_FxT);
-        BIOp_StokesFxT_.AddElemList(elem_lst0);
-        BIOp_StokesFxT_.SetAccuracy(quad_tol*0.1);
-
-        Vector<Real> TdotXn, TdotXn_;
-        BIOp_StokesFxT.ComputePotential(TdotXn, Tbg);
-        BIOp_StokesFxT_.ComputePotential(TdotXn_, Tbg);
-        //elem_lst0.WriteVTK("T", TdotXn_, comm_); // Write VTK
-        TdotXn_ = dot_prod(TdotXn_, Xn);
-
-        elem_lst0.WriteVTK("TdotXn1", TdotXn, comm_); // Write VTK
-        elem_lst0.WriteVTK("TdotXn2", TdotXn_, comm_); // Write VTK
-
-        elem_lst0.WriteVTK("Terr", TdotXn_-TdotXn, comm_); // Write VTK
-
-        Real err = 0;
-        for (const auto a : (TdotXn_-TdotXn)) err = std::max(err, fabs(a));
-        std::cout<<err<<'\n';
-        exit(0);
-      }
-
-      Vector<Real> F;
-      auto TractionOp = [this,&geom](Vector<Real>* Ax, const Vector<Real>& x){
-        Vector<Real> TdotXn, Lf;
-        BIOp_StokesFxT.ComputePotential(TdotXn, x);
-        geom.MobilityNullSpaceCorrection(Lf, x);
-        (*Ax) = x*0.5 + TdotXn + Lf;
-      };
-
-      ParallelSolver<Real> solver(comm_);
-      solver(&F, TractionOp, Tbg*(Real)-1, tol, 500);
-      { ////////////////////////////////////////////////////////////////////////////////
-        Vector<Real> res;
-        TractionOp(&res, F); res += Tbg;
-        elem_lst0.WriteVTK("vis/Residual", res, comm_); // Write VTK
-        elem_lst0.WriteVTK("vis/F", F, comm_); // Write VTK
-        geom.PrintObjForceTorque(F);
-      }
-      if (0) { // build operator matrix ////////////////////////////////////////////////
-        auto build_matrix = [this,&tol](std::function<void(Vector<Real>*, const Vector<Real>&)> Op, Vector<Real> b) {
-          Long N = b.Dim(), Nglb;
-          { // Set Nglb
-            StaticArray<Long,1>  Nloc_{N}, Nglb_;
-            comm_.Allreduce<Long>(Nloc_, Nglb_, 1, Comm::CommOp::SUM);
-            Nglb = Nglb_[0];
-          }
-
-          Matrix<double> M;
-          Vector<Real> x, Ax;
-          if (!comm_.Rank()) M.ReInit(Nglb,Nglb);
-          for (Long i = 0; i < Nglb; i++) {
-            x.ReInit(comm_.Rank() ? 0 : Nglb); x = 0;
-            if (!comm_.Rank()) x[i] = 1;
-            comm_.PartitionN(x, N);
-            Ax.ReInit(N); Ax = 0;
-            Op(&Ax, x);
-
-            comm_.PartitionN(Ax, (comm_.Rank()?0:1));
-            if (!comm_.Rank()) {
-              std::cout<<i<<'\n';
-              for (Long j = 0; j < Nglb; j++) {
-                M[i][j] = (double)Ax[j];
-              }
-            }
-          }
-          if (!comm_.Rank()) M.Write("vis/Mobility_mat");
-
-          Vector<Real> F;
-          ParallelSolver<Real> solver(comm_);
-          solver(&F, Op, b, tol, 500);
-          comm_.PartitionN(b, (comm_.Rank()?0:1));
-          comm_.PartitionN(F, (comm_.Rank()?0:1));
-          if (!comm_.Rank()) b.Write("vis/b_vec");
-          if (!comm_.Rank()) F.Write("vis/x_vec");
-          comm_.Barrier();
-          exit(0);
-        };
-        build_matrix(TractionOp, Tbg*(Real)-1);
-      }
-
-      Vector<Real> U;
-      BIOp_StokesFxU.ComputePotential(U, F);
-
-      BIOp_StokesFxU.template DeleteElemList<SlenderElemList<Real>>();
-      BIOp_StokesFxT.template DeleteElemList<SlenderElemList<Real>>();
-      return U + Ubg;
-    }
-
-  private:
-    const Comm comm_;
-    const Stokes3D_FxU ker_FxU;
-    const Stokes3D_FxT ker_FxT;
-    const Stokes3D_FxU ker_DxU;
-    const Stokes3D_FxUP ker_FxUP;
-    const Stokes3D_FSxU ker_FSxU;
-    mutable BoundaryIntegralOp<Real,Stokes3D_FxU> BIOp_StokesFxU;
-    mutable BoundaryIntegralOp<Real,Stokes3D_FxT> BIOp_StokesFxT;
-    mutable BoundaryIntegralOp<Real,Stokes3D_FxU> BIOp_StokesDxU;
-};
-
 template <class Real> class Mobility {
   public:
 
     Mobility(const Comm& comm) : comm_(comm), BIOp_StokesFxU(ker_FxU, false, comm), BIOp_StokesFxT(ker_FxT, true, comm), BIOp_StokesDxU(ker_DxU, false, comm) {
       BIOp_StokesFxT.SetFMMKer(ker_FxUP, ker_FxUP, ker_FxT, ker_FxUP, ker_FxUP, ker_FxT, ker_FxUP, ker_FxT);
       BIOp_StokesDxU.SetFMMKer(ker_DxU, ker_DxU, ker_DxU, ker_FSxU, ker_FSxU, ker_FSxU, ker_FxU, ker_FxU);
+      BIOp_StokesFxU.SetFMMKer(ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU);
     }
 
-    Vector<Real> ComputeVelocity(const RigidGeom<Real>& geom, const Vector<Real>& Ubg, const Vector<Real>& Tbg, const Real tol = 1e-8, const Real quad_tol = 1e-14) const {
+    Vector<Real> ComputeVelocity_traction_formulation(const RigidGeom<Real>& geom, const Vector<Real>& Ubg, const Vector<Real>& Tbg, const Real tol = 1e-8, const Real quad_tol = 1e-14) const {
       Vector<Real> Xn;
       const SlenderElemList<Real>& elem_lst0 = geom.GetElemList();
       elem_lst0.GetNodeCoord(nullptr, &Xn, nullptr);
 
       BIOp_StokesFxU.AddElemList(elem_lst0);
       BIOp_StokesFxT.AddElemList(elem_lst0);
-      BIOp_StokesDxU.AddElemList(elem_lst0);
       BIOp_StokesFxU.SetAccuracy(quad_tol);
       BIOp_StokesFxT.SetAccuracy(quad_tol);
-      BIOp_StokesDxU.SetAccuracy(quad_tol);
 
-      Vector<Real> F;
       auto TractionOp = [this,&geom](Vector<Real>* Ax, const Vector<Real>& x){
         Vector<Real> TdotXn, Lf;
         BIOp_StokesFxT.ComputePotential(TdotXn, x);
-        geom.MobilityNullSpaceCorrection(Lf, x);
+        geom.RigidBodyMotionProj(Lf, x);
         (*Ax) = x*0.5 + TdotXn + Lf;
       };
 
+      Vector<Real> F;
       ParallelSolver<Real> solver(comm_);
       solver(&F, TractionOp, Tbg*(Real)-1, tol, 500);
-      { ////////////////////////////////////////////////////////////////////////////////
-        Vector<Real> res;
-        TractionOp(&res, F); res += Tbg;
-        elem_lst0.WriteVTK("vis/Residual", res, comm_); // Write VTK
-        elem_lst0.WriteVTK("vis/F", F, comm_); // Write VTK
-        geom.PrintObjForceTorque(F);
-      }
       if (0) { // build operator matrix ////////////////////////////////////////////////
         auto build_matrix = [this,&tol](std::function<void(Vector<Real>*, const Vector<Real>&)> Op, Vector<Real> b) {
           Long N = b.Dim(), Nglb;
@@ -1086,19 +760,52 @@ template <class Real> class Mobility {
       return U + Ubg;
     }
 
+    Vector<Real> ComputeVelocity(const RigidGeom<Real>& geom, const Vector<Real>& Ubg, const Real tol = 1e-8, const Real quad_tol = 1e-14) const {
+      const SlenderElemList<Real>& elem_lst0 = geom.GetElemList();
+      BIOp_StokesFxU.AddElemList(elem_lst0);
+      BIOp_StokesDxU.AddElemList(elem_lst0);
+      BIOp_StokesFxU.SetAccuracy(quad_tol);
+      BIOp_StokesDxU.SetAccuracy(quad_tol);
+
+      auto MobilityOp = [this,&geom](Vector<Real>* Ax, const Vector<Real>& x) {
+        Vector<Real> Udl, Usl, Kx;
+        geom.RigidBodyMotionProj(Kx, x);
+        BIOp_StokesFxU.ComputePotential(Usl, (x-Kx)*5);
+        BIOp_StokesDxU.ComputePotential(Udl, (x-Kx));
+        (*Ax) = (x-Kx)*0.5 + Udl + Usl + Kx;
+      };
+
+      Vector<Real> q;
+      ParallelSolver<Real> solver(comm_);
+      solver(&q, MobilityOp, Ubg, tol, 500);
+
+      //Vector<Real> U;
+      //geom.RigidBodyMotionProj(U, q);
+
+      Vector<Real> U, Udl, Usl, Kq;
+      geom.RigidBodyMotionProj(Kq, q);
+      BIOp_StokesFxU.ComputePotential(Usl, (q - Kq)*5);
+      BIOp_StokesDxU.ComputePotential(Udl, (q - Kq));
+      U = Ubg - ((q-Kq)*0.5 + Udl + Usl);
+
+      BIOp_StokesFxU.template DeleteElemList<SlenderElemList<Real>>();
+      BIOp_StokesDxU.template DeleteElemList<SlenderElemList<Real>>();
+      return U;
+    }
+
   private:
     const Comm comm_;
     const Stokes3D_FxU ker_FxU;
     const Stokes3D_FxT ker_FxT;
-    const Stokes3D_FxU ker_DxU;
+    const Stokes3D_DxU ker_DxU;
     const Stokes3D_FxUP ker_FxUP;
     const Stokes3D_FSxU ker_FSxU;
     mutable BoundaryIntegralOp<Real,Stokes3D_FxU> BIOp_StokesFxU;
     mutable BoundaryIntegralOp<Real,Stokes3D_FxT> BIOp_StokesFxT;
-    mutable BoundaryIntegralOp<Real,Stokes3D_FxU> BIOp_StokesDxU;
+    mutable BoundaryIntegralOp<Real,Stokes3D_DxU> BIOp_StokesDxU;
 };
 
-template <class Real> void test(const Comm& comm, Real tol, Real quad_eps) {
+template <class Real> void test(const Comm& comm, Real gmres_tol, Real quad_eps) {
   auto dot_prod = [](const Vector<Real>& Y, const Vector<Real>& Xn) {
     const Long N = Xn.Dim()/3;
     if (!N) return Vector<Real>();
@@ -1129,16 +836,29 @@ template <class Real> void test(const Comm& comm, Real tol, Real quad_eps) {
     Vector<Real> X, Xn;
     elem_lst0.GetNodeCoord(&X, &Xn, nullptr);
     const Vector<Real> Ubg = bg_flow.Velocity(X);
-    const Vector<Real> Tbg = dot_prod(bg_flow.Traction(X), Xn);
-    elem_lst0.WriteVTK(std::string("vis/Ubg") + std::to_string(i), Ubg, comm); // Write VTK
-    //elem_lst0.WriteVTK(std::string("vis/Tbg") + std::to_string(i), Ubg, comm); // Write VTK
+    //const Vector<Real> Tbg = dot_prod(bg_flow.Traction(X), Xn);
+    //elem_lst0.WriteVTK(std::string("vis/Ubg") + std::to_string(i), Ubg, comm); // Write VTK
     elem_lst0.Write(std::string("vis/geom") + std::to_string(i), comm);
 
-    Vector<Real> U = stokes_mobility.ComputeVelocity(geom, Ubg, Tbg, tol, quad_eps);
+    Vector<Real> U = stokes_mobility.ComputeVelocity(geom, Ubg, gmres_tol, quad_eps);
     elem_lst0.WriteVTK(std::string("vis/U") + std::to_string(i), U, comm); // Write VTK
+
+    if (0) { // print error
+      Vector<Real> Uref = stokes_mobility.ComputeVelocity(geom, Ubg, 1e-14, 1e-14);
+      Vector<Real> Uerr = Uref - U;
+
+      auto max_norm = [](const Vector<Real>& X, const Comm& comm) {
+        StaticArray<Real,2> max_val{0,0};
+        for (const auto& x : X) max_val[0] = std::max<Real>(max_val[0], fabs(x));
+        comm.Allreduce(max_val+0, max_val+1, 1, Comm::CommOp::MAX);
+        return max_val[1];
+      };
+      Real max_err = max_norm(Uerr, comm)/max_norm(Uref, comm);
+      if (!comm.Rank()) std::cout<<max_err<<'\n';
+    }
+
     geom.RigidBodyUpdate(U, dt);
     break;
-    //exit(0);
   }
 }
 
@@ -1146,16 +866,16 @@ int main(int argc, char** argv) {
   Comm::MPI_Init(&argc, &argv);
 
   {
+    pvfmm::Profile::Enable(true);
     Profile::Enable(true);
     Comm comm = Comm::World();
     commandline_option_start(argc, argv, nullptr, comm);
-    double quad_eps = strtod(commandline_option(argc, argv, "-qeps", "1e-10", false, nullptr, comm), nullptr);
-
-    //ParticleFMM<double,3>::test(comm);
-    test<double>(comm, 1e-13, quad_eps);
-
-    Profile::print(&comm);
+    double gmres_tol = strtod(commandline_option(argc, argv, "-gmres_tol", "1e-14", false, nullptr, comm), nullptr);
+    double quad_tol = strtod(commandline_option(argc, argv, "-quad_tol", "1e-14", false, nullptr, comm), nullptr);
     commandline_option_end(argc, argv);
+
+    test<double>(comm, gmres_tol, quad_tol);
+    Profile::print(&comm);
   }
 
   Comm::MPI_Finalize();
