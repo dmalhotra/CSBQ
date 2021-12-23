@@ -30,9 +30,15 @@ Nt=numel(lam{end})/4; semilogy(1:Nt, abs(lam{end}(1:Nt)-lam{end-1}(1:Nt)),'+');
 xlabel('j'); ylabel('est error in \lambda_j');
 print -dpng figs/spec_toy_conv.png
 
-figure(2); clf; semilogx(1:N, lam{i}, '.'); hold on; axis tight;
-xlabel('j'); ylabel('Re \lambda_j'); 
-plot(1:N,-2*cumsum(1./(1:N)),'--');    % harmonic sum, guessed prefactor 2
-legend('spec(A)', '-2 * harmonicsum');
-title('fit the form of spec(A) negative growth');
+figure(2); clf;
+nmax = 300;             % max Fourier mode to predict spectrum to
+lampred = [0 kron(-4*cumsum(1./(1:2:2*nmax-1)), [1 1])];   % a zero then pairs of odd-harmonic sum eigvals
+subplot(2,1,1); plot(1:(2*nmax+1),lampred,'.-');
+hold on; semilogx(1:N, lam{end}, '.');
+axis tight; xlabel('j'); ylabel('Re \lambda_j'); set(gca,'xlim',[1 2*nmax+1]);
+legend('spec(A)', 'pred analytic');
+title('check the spec(A) vs analytic formula');
+subplot(2,1,2);
+semilogy(1:(2*nmax+1), abs(lampred(:)-lam{end}(1:(2*nmax+1))),'+-');
+title('differences'); axis tight;
 print -dpng figs/spec_toy_form.png
