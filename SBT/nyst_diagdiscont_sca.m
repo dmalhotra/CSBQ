@@ -82,10 +82,10 @@ p = 12;
 npan = 16;
 tpan = 2*pi*(0:npan)/npan;    % pan param breakpoints (first=0, last=2pi)
 rng(0);
-tpan(2:npan) = tpan(2:npan) + (2*rand(1,npan-1)-1)/npan;  % unequal
+tpan(2:npan) = tpan(2:npan) + (2*rand(1,npan-1)-1)/npan;  % unequal panels
 fprintf('npan=%d, p=%d, pan lengths in range [%.3g,%.3g]:\n',npan,p,min(diff(tpan)),max(diff(tpan)))
 pan = setup_pans(tpan,p);
-s.t = vertcat(pan.t);                % all nodes
+s.t = vertcat(pan.t);                % get all nodes
 
 disp('smooth kernel...')
 ker = @(t,s) cos(t-s);               % a smooth degenerate kernel (rank=2)
@@ -95,9 +95,12 @@ u = sin(3*s.t+1.1); norm(A*u)        % test a null vector
 u = sin(7*s.t-1); norm(A*u)          % test more osc null vec
 
 disp('diag-discont kernel...')
-ker = @(t,s) cos(mod(s-t,2*pi)/2);   % discont kernel
+ker = @(t,s) cos(mod(s-t,2*pi)/2);   % discont kernel (half-cycle of cos)
 A = nyst_diagdiscont_sca(pan,tpan,ker);
-u = 1+0*s.t; norm(A*u)               % test the null vector
+u = 1+0*s.t; norm(A*u)               % test the null vector (too easy)
 u = exp(1i*s.t); norm(A*u-1i*8/3*u)  % test eigfunc, eigval = 8i/3, guessed
 lam7 = 1i * 56/195;                  % empirical (guessed by repeating digits)
 u = exp(7i*s.t); norm(A*u-lam7*u)    % test eigfunc
+
+%figure; imagesc(A); axis equal tight; colorbar; title('A matrix')
+
