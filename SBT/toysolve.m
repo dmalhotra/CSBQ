@@ -1,14 +1,17 @@
 % solve (ie "invert") toy scalar SBT IE to get f (force) given u (velocity),
-% discretized w/ uniform panels in one 2pi-periodic variable t.
-% The kernel is general, but the speed function is 1.
-% Note: in real SBT will need to interpolate speed func.
-% Barnett 12/17/21
+% discretized w/ arbitrary panels in one 2pi-periodic variable t.
+% The kernel is general, but the speed function is 1 for now, and we just
+% fill matrix A to apply toy scalar SBT operator.
+% Barnett 12/22/21
+
+% Qus: in real SBT will need to interpolate speed func?
+
 clear; verb = 1;
 
 npan = 16;
 p = 10;
 [z w] = gauss(p);   % one std panel
-tpan = 2*pi*(0:npan)/npan;    % pan param breakpoints
+tpan = 2*pi*(0:npan)/npan;    % pan param breakpoints (first=0, last=2pi)
                               % tpan(5) = tpan(5) + 0.1; % check unequal pans
 for i=1:npan
   L = tpan(i+1)-tpan(i);       % param-length of this pan (later must be equal)
@@ -25,13 +28,12 @@ if verb>1, figure(1); clf; plot([s.t s.t]',[0*s.w s.w]','b.-');
   sum(s.w)-2*pi
 end
 
-paux = 20;    % nodes either side (twice this = # aux nodes per target)
+paux = 25;    % nodes either side (twice this = # aux nodes per target)
 [az aw] = gauss(paux);  % discont kernel can use plain G-L as aux scheme
 
 % toy kernel function... (vectorizes to rect array given eg s=row and c=col)
-%ker = @(t,s) 0.5./sin(abs(s-t)/2);   % inv dist btw pts s,t on unit circ
-% matrix will be panelwise circulant
-ker = @(t,s) cos(t-s);               % simple smooth kernel
+ker = @(t,s) cos(t-s);               % simple smooth kernel (rank-2)
+ker = @(t,s) 0.5./sin(abs(s-t)/2);   % inv dist btw pts s,t on unit circ
 
 N=npan*p; A = nan(N,N); % fill A...
 for ip=1:npan          % target pans (block rows)
@@ -63,9 +65,16 @@ for ip=1:npan          % target pans (block rows)
     end
   end
 end
-if verb, figure(3); clf; imagesc(A); axis equal; colorbar; end
+A = A - diag(sum(A,2));   % replace  sum_j Aij uj  -> sum_j Aij (uj - ui)
+if verb, figure(3); clf; imagesc(A); axis equal tight; colorbar; end
 
 u = sin(s.t+0.7); norm(A*u-pi*u)  % try eigfunc, eigval = pi
 u = 1 + 0*s.t; norm(A*u)  % try eigfunc, eigval = 0
 u = sin(2*s.t); norm(A*u)  % try eigfunc, eigval = 0
-                           %figure(4); plot(s.t, [u, A*u], '.-');
+figure(4); plot(s.t, [u, A*u], '.-');
+
+% *** now proceed to:
+%ker = @(t,s) 0.5./sin(abs(s-t)/2);   % inv dist btw pts s,t on unit circ
+% and do u(t)-u(s) upstairs.
+
+
