@@ -57,8 +57,8 @@ template <class Real, class KerSL, class KerDL, class KerGrad> void test_greens_
 
     Vector<Real> X0{0.3,0.6,0.2}, Xn0{0,0,0}, F0(KerSL::SrcDim()), dU;
     for (auto& x : F0) x = drand48();
-    kernel_sl  .Eval(Uref, X, X0, Xn0, F0*kernel_sl  .template ScaleFactor<Real>());
-    kernel_grad.Eval(dU  , X, X0, Xn0, F0*kernel_grad.template ScaleFactor<Real>());
+    kernel_sl  .Eval(Uref, X, X0, Xn0, F0);
+    kernel_grad.Eval(dU  , X, X0, Xn0, F0);
 
     Fd = -Uref;
     { // Set Fs <-- -dot_prod(dU, Xn)

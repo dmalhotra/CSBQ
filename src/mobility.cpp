@@ -866,7 +866,7 @@ int main(int argc, char** argv) {
   Comm::MPI_Init(&argc, &argv);
 
   {
-    pvfmm::Profile::Enable(true);
+    //pvfmm::Profile::Enable(true);
     Profile::Enable(true);
     Comm comm = Comm::World();
     commandline_option_start(argc, argv, nullptr, comm);
