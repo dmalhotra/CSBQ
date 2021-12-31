@@ -27,10 +27,12 @@ CXXFLAGS += -DSCTL_QUAD_T=__float128 # Enable quadruple precision
 # *** alex to try one here
 
 # really one of these should work! but without any, SCTL uses own implementations...
-#CXXFLAGS += -L/usr/lib/libblas/ -L/usr/lib/openblas-base/ -lopenblas -DSCTL_HAVE_BLAS # use BLAS
+#CXXFLAGS += -L/usr/lib/x86_64-linux-gnu -L/usr/lib/x86_64-linux-gnu/openblas-pthread -lopenblas -DSCTL_HAVE_BLAS # use BLAS
 
-#CXXFLAGS += -lblas -DSCTL_HAVE_BLAS # use BLAS
-#CXXFLAGS += -llapack -DSCTL_HAVE_LAPACK # use LAPACK
+#CXXFLAGS += -L/usr/lib/x86_64-linux-gnu/blas/ -L/usr/lib/x86_64-linux-gnu/lapack/
+
+CXXFLAGS += -llapack -DSCTL_HAVE_LAPACK # use LAPACK
+CXXFLAGS += -lblas -DSCTL_HAVE_BLAS # use BLAS
 #CXXFLAGS += -mkl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK # use MKL BLAS and LAPACK (Intel compiler)
 #CXXFLAGS += -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK # use MKL BLAS and LAPACK (non-Intel compiler)
 
@@ -66,7 +68,7 @@ all : $(TARGET_BIN)
 
 $(BINDIR)/%: $(OBJDIR)/%.o
 	-@$(MKDIRS) $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ $(LDLIBS) -o $@
+	$(CXX) $^ $(LDLIBS) -o $@ $(CXXFLAGS)
 
 $(OBJDIR)/%.o: $(SRCDIR)/%.cpp
 	-@$(MKDIRS) $(dir $@)
