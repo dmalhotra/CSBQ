@@ -30,6 +30,7 @@ Nt=numel(lam{end})/4; semilogy(1:Nt, abs(lam{end}(1:Nt)-lam{end-1}(1:Nt)),'+');
 xlabel('j'); ylabel('est error in \lambda_j');
 print -dpng figs/spec_toy_conv.png
 
+% analytic study:
 figure(2); clf;
 nmax = 300;             % max Fourier mode to predict spectrum to
 lampred = [0 kron(-4*cumsum(1./(1:2:2*nmax-1)), [1 1])];   % a zero then pairs of odd-harmonic sum eigvals
@@ -42,3 +43,4 @@ subplot(2,1,2);
 semilogy(1:(2*nmax+1), abs(lampred(:)-lam{end}(1:(2*nmax+1))),'+-');
 title('differences'); axis tight;
 print -dpng figs/spec_toy_form.png
+% this shows the eigenvalues are precisely the analytic ones, good
