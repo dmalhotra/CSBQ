@@ -7,6 +7,7 @@
 
 clear
 fnam='../data/geom.data';
+fnam='../data/tangle-adap.geom';
 fid = fopen(fnam,'r');
 a = textscan(fid,'%f','CommentStyle','#');
 fclose(fid);
