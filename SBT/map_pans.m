@@ -10,14 +10,15 @@ function pan = map_pans(pan,Z,Zp)
 %     w - length-p column vector of arc-length weights
 %  Then {x,w} will be a good quadrature for line integrals on the curve Z([0,L])
 %
-% pan = map_pans(pan,Z,Zp) assumes similar function handle Zp(t) = (d/dt) Z(t)
-%  and uses this to compute velocities dx/dt analytically.
+% pan = map_pans(pan,Z,Zp), if Zp is nonempty, assumes similar function
+%  handle Zp(t) = (d/dt) Z(t) and uses this to compute weights and tangents
+%  analytically.
 %
 % Calling without arguments does self-test of both modes (Zp and no Zp).
 
 % Barnett 1/12/22
 if nargin==0, test_map_pans; return; end
-analderiv = nargin>2;
+analderiv = nargin>2 | isempty(Zp);
 for i=1:numel(pan)
   t = pan(i).t(:)';       % row vec
   pan(i).x = Z(t);
