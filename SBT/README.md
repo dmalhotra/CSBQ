@@ -8,6 +8,7 @@ Summary of low-level functions:
 %   Kzz_mat              - fill zz compnt of SBT K matrix for closed fiber loop
 %   LIquad_panels        - add arc-length quadrature weights to panels given 3D nodes
 %   load_geom            - read in 3D centerline panel quadrature from a Dhairya geom file
+%   save_geom            - write 3D centerline panel quadrature to Dhairya .geom file format
 %   map_pans             - use chart to add 3D quadrature to parameter panel quadrature
 %   nyst_diagdiscont_sca - Nystrom discretize diag-discontinuous kernel, 1D panels
 %   pan_brkpts           - sum up quadrature weights in panels and cumsum to breakpoints

@@ -27,3 +27,4 @@ for i=1:numel(pan)
   end
 end
 set(gca,'clipping','off'); axis equal
+xlabel('x'); ylabel('y'); zlabel('z');

@@ -3,6 +3,7 @@
 startup
 interpmat_1d
 load_geom
+save_geom
 setup_pans
 pan_brkpts
 map_pans
