@@ -1,18 +1,19 @@
 function pan = map_pans(pan,Z,Zp)
-% MAP_PANS   use chart to add 3D quadrature to parameter panel quadrature
+% MAP_PANS   use chart to get 3D line-integral quadrature from parameter quadr
 %
 % pan = map_pans(pan,Z) expects struct array pan to have column-vector fields
 %  t & v giving parametric quadrature nodes & weights for panels on [0,L], and
 %  Z function handle (map from row vector of points in [0,L] to matrix of
 %  coords in R^3 with 3 rows). It returns pan with added fields:
-%     x - 3*p coords in 3D of nodes
+%     x  - 3*p coords in 3D of nodes
 %     tx - 3*p coords in 3D of unit tangents at nodes
-%     w - length-p column vector of arc-length weights
+%     w  - length-p column vector of arc-length weights
+%     sp - length-p col vec of speeds at nodes w.r.t. map from std pan [-1,1]
 %  Then {x,w} will be a good quadrature for line integrals on the curve Z([0,L])
 %
 % pan = map_pans(pan,Z,Zp), if Zp is nonempty, assumes similar function
-%  handle Zp(t) = (d/dt) Z(t) and uses this to compute weights and tangents
-%  analytically.
+%  handle Zp(t) = (d/dt) Z(t) and uses this to compute stuff
+%  analytically. This may be more accurate than without Zp.
 %
 % Calling without arguments does self-test of both modes (Zp and no Zp).
 
@@ -24,16 +25,19 @@ for i=1:numel(pan)
   pan(i).x = Z(t);
   if analderiv
     xp = Zp(t);
-    speed = sqrt(sum(xp.^2,1));   % row vec
+    speed = sqrt(sum(xp.^2,1));      % row vec of speeds |Z'(t)|
     pan(i).tx = xp ./ speed;
     pan(i).w = speed(:).*pan(i).v;
+    tpanlen = sum(pan(i).v);         % parameter-length of this panel
+    pan(i).sp = (tpanlen/2) * speed(:);  % speeds |Z_i(z_j)| where Z_i is std
+                                         % map from -1<z<1 to ith panel in R3
   end
 end
 if ~analderiv, pan = LIquad_panels(pan); end
 
 
 %%%%%%%%
-function test_map_pans
+function test_map_pans       % note sp not tested here, but by arccoords_pans
 [Z,Zp,perim_ex] = ellipse_map(1.9,0.7);
 p = 12;                    % order
 npan = 10;
