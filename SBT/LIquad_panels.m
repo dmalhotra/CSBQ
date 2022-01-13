@@ -7,6 +7,8 @@ function pan = LIquad_panels(pan)
 %  and unit tangents tx, which are fields added to the output panel struct
 %  array. Other fields are preserved.
 %
+% Note: it's peculiar that Jacobian w.r.t. unknown map can be computed.
+%
 % Without arguments does self-test (look at 2nd output of it).
 
 % Barnett 1/12/22
@@ -19,8 +21,10 @@ p = size(pan(1).x,2);              % nodes per panel = "order"
 
 for i=1:numel(pan)
   v = pan(i).x * D';   % differentiate rows as if values on std nodes in [-1,1]
-  sp = sqrt(sum(v.^2,1));          % row of speeds at nodes
+  sp = sqrt(sum(v.^2,1));          % row of speeds (Jacobian factor) at nodes
   pan(i).tx = v ./ sp;
-  arclen = sum(q .* sp);           % q is row
-  pan(i).w = (arclen/2) * q(:);    % rescale weights to be w.r.t. arc length
+  pan(i).w = (q .* sp)';           % q is row. Use Jacobian for weight w.r.t. s
+  pan(i).arclen = sum(pan(i).w);
 end
+
+% *** now add s rel to start 1st pan, for all nodes?

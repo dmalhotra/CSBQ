@@ -18,7 +18,7 @@ function pan = map_pans(pan,Z,Zp)
 
 % Barnett 1/12/22
 if nargin==0, test_map_pans; return; end
-analderiv = nargin>2 | isempty(Zp);
+analderiv = nargin>2 && ~isempty(Zp);
 for i=1:numel(pan)
   t = pan(i).t(:)';       % row vec
   pan(i).x = Z(t);

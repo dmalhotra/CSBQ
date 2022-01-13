@@ -37,7 +37,6 @@ function A = nyst_diagdiscont_sca(pan,tpan,ker,o)
 
 if nargin==0, test_nyst_diagdiscont_sca; return; end
 if nargin<4, o=[]; end
-addpath utils
 
 npan = numel(pan);
 p = numel(pan(1).w);   % order (assumed same for each pan)
