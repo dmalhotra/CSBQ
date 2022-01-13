@@ -1,4 +1,5 @@
-% Examine spectrum of toy: scalar SBT operator (zz-part) on the unit circle
+% Check spectrum of scalar SBT operator (zz-part) on unit circle vs analytic.
+%
 % The operator is (Ku)(t) := int_0^2pi (u(s)-u(t))/d(t,s) ds
 % where d(t,s) = 2 sin |s-t|/2 is the distance btw angles s,t on unit circle.
 %
@@ -17,6 +18,7 @@ figure(1); clf; subplot(2,1,1);
 for i=1:numel(npans); npan=npans(i)
   tpan = 2*pi*(0:npan)/npan;    % pan param breakpoints (first=0, last=2pi)
   pan = setup_pans(tpan,p);
+  [pan.w] = deal(pan.v);        % use weights wrt param t
   A = nyst_diagdiscont_sca(pan,tpan,ker);
   A = A - diag(sum(A,2));       % Nystrom for u(s) becoming u(s)-u(t) in K apply
   N = size(A,1);

@@ -39,4 +39,6 @@ end
 function test_load_geom
 pan = load_geom('../data/geom.data');
 showcurve(pan); title('test load\_geom');
-
+% that was basic. Now we can set up quadr, etc...
+pan = LIquad_panels(pan);
+fprintf('perim = %.3g\n',sum(vertcat(pan.w)))

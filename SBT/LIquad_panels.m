@@ -10,17 +10,17 @@ function pan = LIquad_panels(pan)
 % Without arguments does self-test (look at 2nd output of it).
 
 % Barnett 1/12/22
-if nargin==0, map_pans; return; end        % use another self-test
+if nargin==0, map_pans; return; end        % uses another self-test
 
 % set up standard panel on [-1,1]...
-p = size(pan(1).x,2);     % nodes per panel = "order"
+p = size(pan(1).x,2);              % nodes per panel = "order"
 [z q] = gauss(p);
-[~,D] = interpmat_1d(z,z);  % high-order differentiation mat on std nodes
+[~,D] = interpmat_1d(z,z);         % high-order differentiation mat on std nodes
 
 for i=1:numel(pan)
   v = pan(i).x * D';   % differentiate rows as if values on std nodes in [-1,1]
-  sp = sqrt(sum(v.^2,1));   % row of speeds at nodes
+  sp = sqrt(sum(v.^2,1));          % row of speeds at nodes
   pan(i).tx = v ./ sp;
-  arclen = sum(q .* sp);    % q is row
-  pan(i).w = (arclen/2) * q(:);
+  arclen = sum(q .* sp);           % q is row
+  pan(i).w = (arclen/2) * q(:);    % rescale weights to be w.r.t. arc length
 end

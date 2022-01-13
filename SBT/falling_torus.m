@@ -1,5 +1,6 @@
-% script to compute, in the SBT approx, mobility of symmetric torus with
-% centerline circle radius R in xy plane, minor radius eps,
+% Compute, in the SBT approx, z-mobility of rigid symmetric torus in xy-plane.
+%
+% Centerline is circle radius R in xy plane, minor radius eps,
 % falling at constant velocity u(s) = (0,0,U), under a constant force density
 % f(s) = (0,0,f). Then total force F = 2*pi*R*f.
 % This is the simplest rigid sedimentation case computed to high accuracy

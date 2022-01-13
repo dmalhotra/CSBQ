@@ -1,10 +1,8 @@
-Folder for slender body theory experiments and comparison to rigid-body BIE
-
-All MATLAB code. Do `startup` in MATLAB before running.
-
-Summary of low-level functions:
-```matlab
+% SBT
+%
+% Files
 %   ellipse_map          - simple 3D ellipse closed curve analytic map and its perim
+%   falling_torus        - Compute, in the SBT approx, z-mobility of rigid symmetric torus in xy-plane.
 %   Kzz_mat              - fill zz compnt of SBT K matrix for closed fiber loop
 %   LIquad_panels        - add arc-length quadrature weights to panels given 3D nodes
 %   load_geom            - read in 3D centerline panel quadrature from a Dhairya geom file
@@ -15,12 +13,4 @@ Summary of low-level functions:
 %   showcurve            - plot panel quadrature for a curve in 3D
 %   startup              - some project- and Alex-specific MATLAB settings for SBT.
 %   test_all             - run all tests of local functions and new utilities, no elaborate drivers
-```
-
-High-level scripts/drivers and experiments:
-```matlab
-%   falling_torus        - Compute, in the SBT approx, z-mobility of rigid symmetric torus in xy-plane.
 %   test_spec_toy        - Check spectrum of scalar SBT operator (zz-part) on unit circle vs analytic.
-```
-
-Alex Barnett, starting late Dec 2021

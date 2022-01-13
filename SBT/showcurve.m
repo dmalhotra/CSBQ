@@ -5,6 +5,8 @@ function showcurve(pan,ax)
 %  tangents tx are shown. radii r are not shown.
 %
 % showcurve(pan,ax) adds to axes object ax
+%
+% For a test see: LOAD_GEOM
 
 % Barnett 1/12/22
 if nargin<2, figure; else, axes(ax); hold on; end
