@@ -48,9 +48,10 @@ tpan = 2*pi*(0:npan)'/npan;   % pan param breakpoints (first=0, last=2pi)
 pan = setup_pans(tpan,p);
 pan = map_pans(pan,Z,Zp);
 x = horzcat(pan.x);           % save all nodes
-r = 0.01;                     % radius, aka eps
+r = 0.01;                     % radius, aka eps, arbitrary
+thetaord = 12;                % arbitrary
 fnam = 'output/ellipse.geom';
-save_geom(fnam,pan,r);
+save_geom(fnam,pan,r,thetaord);
 pan = load_geom(fnam);
 x2 = horzcat(pan.x); norm(x-x2)  % check nodes reloaded correctly
 showcurve(pan);               % eyeball the nx orientation vecs
