@@ -13,7 +13,7 @@ function pan = map_pans(pan,Z,Zp)
 % pan = map_pans(pan,Z,Zp) assumes similar function handle Zp(t) = (d/dt) Z(t)
 %  and uses this to compute velocities dx/dt analytically.
 %
-% Calling without arguments does self-test.
+% Calling without arguments does self-test of both modes (Zp and no Zp).
 
 % Barnett 1/12/22
 if nargin==0, test_map_pans; return; end
@@ -40,9 +40,12 @@ tpan = 2*pi*(0:npan)'/npan;   % pan param breakpoints (first=0, last=2pi)
 rng(0);
 tpan(2:npan) = tpan(2:npan) + 5*(rand(npan-1,1)-.5)/npan;  % unequal panels
 pan = setup_pans(tpan,p);
-% test Zp analytic...
-pan = map_pans(pan,Z,Zp);
+
+pan = map_pans(pan,Z,Zp);    % use Zp case
 showcurve(pan)
 perim = sum(vertcat(pan.w));
-fprintf('rel perim err %.3g\n',abs(perim-perim_ex)/perim_ex)
+fprintf('analytic Zp:   rel perim err %.3g\n',abs(perim-perim_ex)/perim_ex)
 
+pan = map_pans(pan,Z);       % use only Z node coords (high-ord diff gets w)
+perim = sum(vertcat(pan.w));
+fprintf('LIquad_panels: rel perim err %.3g\n',abs(perim-perim_ex)/perim_ex)
