@@ -90,11 +90,12 @@ rng(0);
 tpan(2:npan) = tpan(2:npan) + 0.2*L*(2*rand(1,npan-1)-1)/npan;  % unequal panels
 fprintf('npan=%d, p=%d, pan lengths in range [%.3g,%.3g]:\n',npan,p,min(diff(tpan)),max(diff(tpan)))
 pan = setup_pans(tpan,p);
-s.t = vertcat(pan.t);                % get all nodes
+[pan.w] = deal(pan.v);               % use param-quadr as quadr
 
 disp('smooth kernel...')
 ker = @(t,s) cos(t-s);               % a smooth degenerate kernel (rank=2)
 A = nyst_diagdiscont_sca(pan,tpan,ker);
+s.t = vertcat(pan.t);                % get all nodes
 u = sin(s.t+0.7); norm(A*u-pi*u)     % test eigfunc, eigval = pi
 u = sin(3*s.t+1.1); norm(A*u)        % test a null vector
 u = sin(7*s.t-1); norm(A*u)          % test more osc null vec
