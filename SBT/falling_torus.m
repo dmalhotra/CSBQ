@@ -19,7 +19,7 @@
 % Barnett 1/5/22
 clear
 
-R = 3.7;    % major radius of torus, ie of centerline circle, can be anything
+R = 1.0; %3.7;    % major radius of torus, ie of centerline circle, can be anything
 
 mitchepss = [1e-1 1e-2 1e-3 1e-4 1e-5];   % Mitchell Table 2 bottom rows...
 dragcoeffs = [0.7843079118776118     % F', ie force ratio to a sphere

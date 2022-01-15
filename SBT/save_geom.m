@@ -1,4 +1,4 @@
-function pan = save_geom(fnam,pan,r,thetaord)
+function save_geom(fnam,pan,r,thetaord)
 % SAVE_GEOM  write 3D centerline panel quadrature to Dhairya .geom file format
 %
 % save_geom(fnam,pan,r,thetaord) writes text file fnam in .geom format, using
