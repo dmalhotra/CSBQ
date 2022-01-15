@@ -49,5 +49,5 @@ upex = fp(t);     % col vec
 [L Lp] = interpmat_1d(t,x);
 u = L * data;
 up = Lp * data;
-fprintf('max abs err for interp in [a,b] : %.3g (val), %.3g (deriv)\n',max(abs(u - uex)),max(abs(up - upex)))
+fprintf('max abs err interpmat_1d in [a,b] : %.3g (val), %.3g (deriv)\n',max(abs(u - uex)),max(abs(up - upex)))
 fprintf('interp mat inf-norm = %.3g;   max element size = %.3g\n',norm(L,inf),max(abs(L(:))))
