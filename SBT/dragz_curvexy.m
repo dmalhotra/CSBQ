@@ -1,4 +1,4 @@
-% Drag of general xy-plane curve under const (0,0,U) velocity, in SBT.
+% Solve drag of general xy-plane curve under const (0,0,U) velocity, in SBT.
 %
 % Needs solve (0,0,f(s)) function in 1D IE SBT[f] = u, just zz-cmpnts, then
 % integrate f to get total force F.
@@ -43,7 +43,7 @@ for i=1:numel(npans)         % h-convergence study ..........
   w = vertcat(pan.w);                    % arc-len quadr wei for nodes
   F = sum(w.*f);                         % total force
   fprintf('N=%d:\tL=%.16g\tdrag force F=%.16g\n',N,L,F)
-end
+end                          % ...............................
 
 if verb
   figure; subplot(2,1,1); showcurve(pan,gca); title('curve in xy-plane');

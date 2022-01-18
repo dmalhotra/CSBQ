@@ -27,7 +27,9 @@ High-level scripts/drivers and experiments:
 %   test_spec_toy           - Check spectrum of scalar SBT operator (zz-part) on unit circle vs analytic.
 %   drag_torus_axial        - Compute, in the SBT approx, z-mobility of rigid symmetric torus in xy-plane.
 %   drag_torus_edgewise_SBT - Use Nystrom solve for rigid SBT to check torus drag edgewise vs Johnson-Wu'79.
-%   dragz_curvexy           - Drag of general xy-plane curve under const (0,0,U) velocity, in SBT.
+%   dragz_curvexy           - Solve drag of general xy-plane curve under const (0,0,U) velocity, in SBT.
+%   drag_curve              - Solve SBT 1D IE for drag on general rigid smooth panelized 3D closed curve.
+
 ```
 
 Alex Barnett, starting late Dec 2021
