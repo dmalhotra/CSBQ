@@ -50,6 +50,6 @@ if verb
   subplot(2,1,2); plot(s,f,'.-'); axis tight; title('solution f(s)');
   xlabel('s (arc-length coord)'); ylabel('f (force density)');
   print -dpng figs/dragz_curvexy_ellipse.png
+  save_geom('output/ellipse_a2_b.5_p12_npan40_r1e-3.geom',pan,1e-3,10);
+  figure; l=eig(A); plot(l,'+'); axis equal; title('spec A');
 end
-
-save_geom('output/ellipse_a2_b.5_p12_npan40_r1e-3.geom',pan,1e-3,10);

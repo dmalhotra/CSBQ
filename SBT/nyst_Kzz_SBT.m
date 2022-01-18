@@ -7,21 +7,20 @@ function K = nyst_Kzz_SBT(pan,sbrk,o)
 %  plane. This is a scalar case, without any "Rhat" or "shat" outer prod terms.
 %  It is indep of the fiber radius (which only affects the Lambda(s) "local"
 %  term, not included here).
-%  We require arc-length parameters of the nodes, arc-length weights,
-%  arc-length chart for each panel. Order p is assumed same for each panel.
+%  We require arc-length parameters of the nodes and their arc-length weights.
+%  Order p is assumed same for each panel.
 %
 % Inputs:
 %  pan - a struct array (one struct per panel) with fields:
 %        x = nodes (3*p array)
 %        w = weights for arc-length quadrature (length-p col vec)
 %        s = arc-length coords of nodes, wrt fixed origin on centerline (")
-%        scht = handle to chart from arc-len coord to panel in R3.
 %  sbrk - panel-breakpoints in arc-length coords (length npan+1 vec).
 %        For now, must have sbrk(1)=0 and sbrk(end)=L, setting the perimeter.
 %  o - optional struct with optional fields:
 %        o.paux = order of auxiliary nodes (otherwise chosen by default)
 % Output:
-%  A - N*N Nystrom matrix (where N = total nodes in all panels), that maps
+%  K - N*N Nystrom matrix (where N = total nodes in all panels), that maps
 %      values of a L-periodic function f(s) on all nodes to values of
 %
 %    (Kf)(s) := int_0^L [ f(s')/R(s,s') - f(s)/d(s,s') ] ds'
@@ -82,7 +81,7 @@ for ip=1:npan          % target pans (block rows)
       qq = inpan(sq,jp);     % aux inds in this src pan (<- denoted by "qq")
       sqq = sq(qq); wqq = wq(qq);   % rows aux nodes, wei, in this src pan
       sj = pan(jp).s - L*(ip==1 & sp==1) + L*(ip==npan & sp==3);  % wrap src
-    %[I,Ip] = interpmat_1d(sqq, sj);  % "aux vals,ders from src node vals" mats
+    %[I,Ip] = interpmat_1d(sqq, sj);  % "aux vals,ders from src node vals" mats, but we don't need Ip since shat not in the scalar case
       I = interpmat_1d(sqq, sj);  % "aux vals from src node vals" mat
       xqq = pan(jp).x * I';  % rowwise interpolate to 3D aux locs, 3*numaux
       dr = x(:,i) - xqq;     % aux node R displacement vecs (3*numaux)
