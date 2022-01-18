@@ -35,6 +35,6 @@ s.t = vertcat(pan.t); s.w = vertcat(pan.v);     % concat all pan nodes
 int1 = sum(s.w);              % integral of 1
 err = int1-2*pi
 assert(abs(err)<1e-14)
-figure(1); clf; plot([s.t s.t]',[0*s.w s.w]','b.-'); vline(tpan);
-xlabel('t'); title('setup\_pans test'); axis tight;
 
+figure; plot([s.t s.t]',[0*s.w s.w]','b.-'); vline(tpan);
+xlabel('t'); title('setup\_pans test'); axis tight;

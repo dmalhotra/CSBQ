@@ -1,7 +1,7 @@
-% Compute, in the SBT approx, z-mobility of rigid symmetric torus in xy-plane.
+% Compare SBT z-drag rigid symmetric xy-plane torus vs Mitchell'21 exact table.
 %
 % Centerline is circle radius R in xy plane, minor radius eps.
-% In axial case, it's
+% We focus on axial case:
 % falling at constant velocity u(s) = (0,0,U), under a constant force density
 % f(s) = (0,0,f). Then total force F = 2*pi*R*f, and drag is F/U.
 % This is the simplest rigid sedimentation case computed to high accuracy
@@ -19,12 +19,13 @@
 % distant enclosing sphere, or by integrating it over the body surface.
 %
 % In edgewise case, u(s) = (U,0,0) and force density (f(s),0,0) has Fourier
-% modes indices {-1,0,1} in the SBT approx, which is all we know.
-% This can be solved analytically, as in
+% modes indices {-1,0,1} in the SBT approx, which is the only approx known
+% apart from Dhairya's code.
+% SBT can be solved analytically in Fourier modes, as in
 % Johnson-Wu '79, formula on p.272, believed O(eps^.log(1/eps)) accurate as
 % with SBT in general for smooth cases.
 %
-% Barnett 1/5/22 (axial); added edgewise drag 1/17/22.
+% Barnett 1/5/22 (axial); added edgewise drag for fun 1/17/22.
 clear
 
 R = 3.7;    % major radius of torus, ie of centerline circle, can be anything

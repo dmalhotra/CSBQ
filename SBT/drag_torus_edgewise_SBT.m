@@ -34,17 +34,16 @@ for i=1:numel(npans)         % h-convergence study ..........
   w = vertcat(pan.w);                    % arc-len quadr wei per nodes, col
   f = reshape(f,[3 N]);                  % each row a Cartesian
   F = sum(w'.*f,2);                      % total force vec = rowwise wei sum
-  fprintf('N=%d:\tdrag force F=(%.16g, %.3g, %.3g) \tcond(A)=%.3g\n',N,F(1),F(2),F(3),cond(A))
+  fprintf('N=%d:\tdrag force F=(%.16g, %.3g, %.3g) \tcond(A)=%.3g\n',N,F(1),F(2),F(3),cond(A))  % cond growing when N>1/eps since spec denser @ 0
 end                          % .............................
 
 FJW = mu*R * 2*pi^2*(3*logterm-17/2) / ((logterm-.5)*(logterm-2)-2);   % cool!
-fprintf('should be Fx Johnson-Wu %.16g\n',FJW)       % an exact solve of SBT
+fprintf('compare Fx Johnson-Wu %.16g\n',FJW)       % an exact solve of SBT
 
 if verb
   s = vertcat(pan.s)';                    % arc-len of nodes, row
   figure; plot(s,f,'.-'); axis tight; title('solution vec f(s) cmpts');
   xlabel('s (arc-length coord)'); ylabel('f (force density cmpt)');
   legend('f_x','f_y','f_z');
-  %print -dpng figs/dragz_curvexy_ellipse.png
   %figure; l=eig(A); plot(l,'+'); axis equal; title('spec A');
 end

@@ -27,5 +27,4 @@ for i=1:numel(pan)
   pan(i).tx = v ./ sp;
   pan(i).w = (q .* sp)';           % q is row. Use Jacobian for weight w.r.t. s
   pan(i).sp = sp(:);               % save Jacobians
-  sp
 end
