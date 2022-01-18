@@ -81,8 +81,7 @@ for ip=1:npan          % target pans (block rows)
       qq = inpan(sq,jp);     % aux inds in this src pan (<- denoted by "qq")
       sqq = sq(qq); wqq = wq(qq);   % rows aux nodes, wei, in this src pan
       sj = pan(jp).s - L*(ip==1 & sp==1) + L*(ip==npan & sp==3);  % wrap src
-    %[I,Ip] = interpmat_1d(sqq, sj);  % "aux vals,ders from src node vals" mats, but we don't need Ip since shat not in the scalar case
-      I = interpmat_1d(sqq, sj);  % "aux vals from src node vals" mat
+      I = interpmat_1d(sqq, sj);    % "aux vals from src node vals" mat
       xqq = pan(jp).x * I';  % rowwise interpolate to 3D aux locs, 3*numaux
       dr = x(:,i) - xqq;     % aux node R displacement vecs (3*numaux)
       invRdist = 1./sqrt(sum(dr.^2,1));               % row aux node 1/R to targ

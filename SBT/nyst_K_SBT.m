@@ -64,15 +64,16 @@ for ip=1:npan          % target pans (block rows)
   ipl = mod(ip-2,npan)+1; ipr = mod(ip,npan)+1;     % left & right pan inds
   jfar = find((1:npan ~= ipl) & (1:npan ~= ip) & (1:npan ~= ipr));  % far pans
   jjfar = ones(p,1)*(p*(jfar-1)) + (1:p)';         % convert to far node inds
+  jjfar = jjfar(:);
   nfar = numel(jjfar);
   jjfar3 = ones(3*p,1)*(3*p*(jfar-1)) + (1:3*p)';         % far input inds
-  jjfar = jjfar(:); jjfar3 = jjfar3(:);
+  jjfar3 = jjfar3(:);
   ii = (1:p)+(ip-1)*p;   % block node indices for target pan
-  ii3 = (1:3*p)+3*(ip-1)*p;   % this pan output (row) indices
+  ii3 = (1:3*p)+(ip-1)*3*p;   % this pan output (row) indices
   dx = x(1,ii)' - x(1,jjfar);    % go Cartesian, each cmpnt p-by-(npan-3)p
   dy = x(2,ii)' - x(2,jjfar);
   dz = x(3,ii)' - x(3,jjfar);
-  invRdist = 1./sqrt(dx.^2+dy.^2+dz.^2);      % 1/R
+  invRdist = 1./sqrt(dx.^2+dy.^2+dz.^2);      % 1/R matrix, p*nfar
   dx = dx.*invRdist; dy = dy.*invRdist; dz = dz.*invRdist; % (dx,dy,dz) now Rhat
   IRR = [1+dx.^2, dx.*dy, dx.*dz; dy.*dx, 1+dy.^2, dy.*dz; dz.*dx, dz.*dy, 1+dz.^2];  % I + Rhat.Rhat^T but wrong ord: node inds fast, xyz inds slow
   ker = IRR(inds3(p),inds3(nfar)) .* kron(invRdist,ones(3));  % reord, vals
@@ -85,7 +86,7 @@ for ip=1:npan          % target pans (block rows)
   sz = pan(ip).tx(3,:)';
   Iss = [1+sx.^2, sx.*sy, sx.*sz; sy.*sx, 1+sy.^2, sy.*sz; sz.*sx, sz.*sy, 1+sz.^2];  % I + shat.shat^T but row ord wrong: node inds fast, xyz inds slow
   ker = kron(ones(1,nfar), Iss(inds3(p),:)) .* kron(invsdist,ones(3));   % reord, cp over src, 1/d
-  Bii(:,jjfar3) = ker .* kron(w(jjfar), ones(3,1))';    % sin bit & ds wei
+  Bii(:,jjfar3) = ker .* kron(w(jjfar),ones(3,1))';    % sin bit & ds wei
   % rest is 3-panel special quad for discont ker, for each targ k in pan...
   ips = {ipl, ip, ipr};        % 3 special pan inds: left-nei, self, right-nei
   s0 = sbrk(ipl); if ip==1, s0=s0-L; end      % special bottom end, unwrap
@@ -103,21 +104,22 @@ for ip=1:npan          % target pans (block rows)
       qq = inpan(sq,jp);     % aux inds in this src pan (<- denoted by "qq")
       sqq = sq(qq); wqq = wq(qq);   % rows aux nodes, wei, in this src pan
       sj = pan(jp).s - L*(ip==1 & sp==1) + L*(ip==npan & sp==3);  % wrap src
-      I = interpmat_1d(sqq, sj);  % "aux vals from src node vals" mat
+      I = interpmat_1d(sqq, sj);    % "aux vals from src node vals" mat
       xqq = pan(jp).x * I';  % rowwise interpolate to 3D aux locs, 3*numaux
       dr = x(:,i) - xqq;     % aux node R displacement vecs (3*numaux)
-      dx = dr(1,:); dy = dr(2,:); dz = dr(3,:);   % its Cartesians
-      IRR = [1+dx.^2, dx.*dy, dx.*dz; dy.*dx, 1+dy.^2, dy.*dz; dz.*dx, dz.*dy, 1+dz.^2];  % I + Rhat.Rhat^T but with col ord aux node inds fast, xyz inds slow
       invRdist = 1./sqrt(sum(dr.^2,1));               % row aux node 1/R to targ
+      dx = dr(1,:); dy = dr(2,:); dz = dr(3,:);   % its Cartesians
+      dx = dx.*invRdist; dy = dy.*invRdist; dz = dz.*invRdist;  % now Rhat
+      IRR = [1+dx.^2, dx.*dy, dx.*dz; dy.*dx, 1+dy.^2, dy.*dz; dz.*dx, dz.*dy, 1+dz.^2];  % I + Rhat.Rhat^T but with col ord aux node inds fast, xyz inds slow
       ker = IRR(:,inds3(numel(wqq))) .* kron(invRdist,ones(3));   % reord, vals
-      jjnr3 = 3*(jp-1)*p + (1:3*p);   % col inds for src pan
+      jjnr3 = (jp-1)*3*p + (1:3*p);   % col inds for src pan
       K(3*(i-1)+(1:3), jjnr3) = (ker .* kron(wqq,ones(1,3))) * kron(I,eye(3)); % aux wei & interp -> 3 rows
       ds = t - sqq;          % row aux node arc-dists from targ
       invsdist = (pi/L) ./ abs(sin(ds*(pi/L)));       % periodized s-s' inv-dist
       ker = kron(invsdist, Iss);
       Bii(k3, jjnr3) = (ker .* kron(wqq,ones(1,3))) * kron(I,eye(3));
     end
-    Biiksums = reshape(sum(reshape(Bii(k3,:),[9 N]),2),[3 3]);
+    Biiksums = reshape(sum(reshape(Bii(k3,:),[9 N]),2),[3 3]);  % sum each of 9
     K(i3,i3) = K(i3,i3) - Biiksums;  % apply 2nd term: outer prod coord sums to 3x3 diag entries
   end
 end
@@ -125,28 +127,58 @@ end
 
 %%%%%%%%%
 function test_nyst_K_SBT   % simple test for rot-invariance wrt scalar Kzz
+verb = 0;
 p = 12;                    % order
-npan = 10;
+npan = 10;                 % check conv here (>20 for ellipse)
 tpan = 2*pi*(0:npan)'/npan;   % pan param breakpoints (first=0, last=2pi)
 rng(0);
 tpan(2:npan) = tpan(2:npan) + 5*(rand(npan-1,1)-.5)/npan;  % unequal panels
 pan = setup_pans(tpan,p);
+N = p*npan;
 
 [Q,~] = qr(randn(3));           % rand rot mat
-%Q = eye(3);                               % basic test
+%Q = eye(3);                     % warm-up: no rot
 %th = 2*pi*rand; s=sin(th); c=cos(th);
 %Q = [c s 0; -s c 0; 0 0 1]'; i = [1 3 2]; Q = Q(i,i);     % rots in xz only
 
-[Z,Zp] = ellipse_map(2,.5,Q,zeros(3,1));   % ellipse at that orientation
+% choose either: circle tests Fourier modes m+-2; ellipse merely convergence...
+%[Z,Zp] = ellipse_map(2,.5,Q,zeros(3,1));   % ellipse at that orientation
+[Z,Zp] = ellipse_map(1,1,Q,zeros(3,1));   % circle at that orientation
+
 pan = map_pans(pan,Z,Zp);
 [pan sbrk] = arccoords_pans(pan);
+%norm(sbrk-tpan)  % for unit circle only
+if verb, showcurve(pan); end
 
 K = nyst_K_SBT(pan,sbrk);       % do it, 3N*3N
-Kzz = nyst_Kzz_SBT(pan,sbrk);   % scalar version N*N (didn't care about Q)
-N = size(Kzz, 1);
+if verb, figure; ii=3*(1:N)-2;  % inds of x cmpnts (for either in or out)
+  Kii = K(ii,ii); imagesc(Kii-diag(diag(Kii))); colorbar; title('Kxx offdiag'); end  % disturbingly oscillatory weights
 
-d = Q(:,3);                     % vec that z vec rot to, f and u should point
+Kzz = nyst_Kzz_SBT(pan,sbrk);   % scalar version N*N (didn't care about Q)
+d = Q(:,3);                     % vec that z vec rot to: f and u parallel to it
 Pd = kron(eye(N),d);            % proj along d, from 3N Cart coords to N outputs
 Kdd = Pd' * (K * Pd);           % proj input and output sides
-fprintf('max diff, scalar Kzz vs projected tensor K: %.3g\n', norm(Kdd-Kzz, inf))
-%figure; subplot(1,3,1); imagesc(Kdd); colorbar; subplot(1,3,2); imagesc(Kzz); colorbar; subplot(1,3,3); imagesc(log10(abs(Kdd./Kzz-1))); colorbar; title('log10 diff')
+fprintf('max diff, scalar Kzz vs proj tensor K: %.3g\n', norm(Kdd-Kzz, inf))
+
+% test applying Fourier modes, npan-convergence, etc...
+t = vertcat(pan.t)';           % row of params of nodes
+mi = 3;                        % input mode
+fprintf('For input sin mode freq %d, Fourier output modes are...\n',mi);
+f = [sin(mi*t); 0*t; 0*t];     % x-only (pre-rot)
+%f = [0*t;0*t;sin(mi*t)];       % z-only (pre-rot)
+f = Q*f;
+u = K*f(:);   % interlace xyz cmpts of f for correct indexing
+u = Q'*reshape(u,[3 N]);       % unrot so curve is back in xy-plane
+if verb, figure; plot(t,[f;u],'.-'); legend('f_x','f_y','f_z','u_x','u_y','u_z'); title('test nyst K SBT hitting f_x sin mode'); end
+w = vertcat(pan.w)';           % for quadrature
+for m=0:10       % extract cos, sin amplitudes by Euler-Fourier formula...
+  am = sum(u.*w.*(ones(3,1)*cos(m*t)),2)/pi;   % do quadrature (2a_0, a_1, ..)
+  if m==0, am=am/2; end        % a_0 case
+  fprintf(' u cos m=%d:\t (%19.12g%19.12g%19.12g)\n',m,am(1),am(2),am(3))
+  if m>0
+    bm = sum(u.*w.*(ones(3,1)*sin(m*t)),2)/pi;
+    fprintf(' u sin m=%d:\t (%19.12g%19.12g%19.12g)\n',m,bm(1),bm(2),bm(3))
+  end
+end
+
+
