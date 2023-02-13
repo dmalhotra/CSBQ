@@ -59,10 +59,12 @@ OBJDIR = ./obj
 INCDIR = ./include
 
 TARGET_BIN = \
-       $(BINDIR)/slenderbody \
-       $(BINDIR)/test-unitDLP-tangle \
        $(BINDIR)/bvp-solve \
-       $(BINDIR)/mobility
+       $(BINDIR)/stokes-drag \
+       $(BINDIR)/greens-identity \
+       $(BINDIR)/mobility \
+       $(BINDIR)/spectrum
+
 
 all : $(TARGET_BIN)
 
