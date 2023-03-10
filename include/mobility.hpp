@@ -40,10 +40,15 @@ namespace sctl {
 
     public:
 
-    RigidBodyList(const Comm& comm = Comm::Self(), const Long Nobj = 1, const Real loop_rad = 0.45) : comm_(comm) {
-      const Long Npanel = 16;
+    enum class Geom {
+      Loop,
+      Bacteria
+    };
+
+    RigidBodyList(const Comm& comm = Comm::Self(), const Long Nobj = 1, const Real loop_rad = 0.45, const Geom& geom_type = Geom::Loop) : comm_(comm) {
+      const Long Npanel = 32;
       const Long ChebOrder0 = 10;
-      const Long FourierOrder0 = 16;
+      const Long FourierOrder0 = 32;
 
       obj_elem_cnt.ReInit(Nobj);
       obj_elem_cnt = Npanel;
@@ -55,8 +60,9 @@ namespace sctl {
       FourierOrder = FourierOrder0;
       ChebOrder = ChebOrder0;
 
-      InitGeom(X, R, OrientVec, panel_len, Xc, Mr_lst, obj_elem_cnt, obj_elem_dsp, ChebOrder, loop_rad);
+      InitGeom(X, R, OrientVec, panel_len, Mr_lst, obj_elem_cnt, obj_elem_dsp, ChebOrder, loop_rad, geom_type);
       InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ChebOrder, FourierOrder, X, R, OrientVec, comm_);
+      GetXc(Xc, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
     }
 
     void Init(const Vector<Long>& obj_elem_cnt_, const Vector<Real>& Xc_, const Vector<Real>& Mr_lst_, const Vector<Long>& ChebOrder_, const Vector<Long>& FourierOrder_, const Vector<Real>& panel_len_, const Vector<Real>& X_, const Vector<Real>& R_, const Vector<Real>& OrientVec_) {
@@ -272,7 +278,7 @@ namespace sctl {
       }
 
       Vector<Real> Uc, Omega_c;
-      { // Set Xc, Uc
+      { // Set Omega_c, Uc
         Vector<Real> area;
         ObjIntegral(Uc, U_loc, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
         ObjIntegral(area, X_loc*0+1, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
@@ -997,7 +1003,7 @@ namespace sctl {
       InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, Xc, ChebOrder, FourierOrder, X, R, OrientVec, obj_elem_cnt, comm_);
     }
 
-    static void InitGeom(Vector<Real>& X, Vector<Real>& R, Vector<Real>& OrientVec, Vector<Real>& panel_len, Vector<Real>& Xc, Vector<Real>& Mr_lst, const Vector<Long>& cnt, const Vector<Long>& dsp, const Vector<Long>& ChebOrder, const Real loop_rad) {
+    static void InitGeom(Vector<Real>& X, Vector<Real>& R, Vector<Real>& OrientVec, Vector<Real>& panel_len, Vector<Real>& Mr_lst, const Vector<Long>& cnt, const Vector<Long>& dsp, const Vector<Long>& ChebOrder, const Real loop_rad, const Geom& geom_type) {
       srand48(2);
 
       auto loop_geom = [&loop_rad](Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta){
@@ -1009,12 +1015,31 @@ namespace sctl {
         ez = 1;
         r = 0.025;
       };
+      auto bacteria_geom = [&loop_rad](Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta){
+        Real t = theta/const_pi<Real>()-1; // -1:1
+        Real aspect = const_pi<Real>()*3/2+1;
+
+        Real L = aspect-1+const_pi<Real>()/2;
+        Real scal = loop_rad/(1+L-const_pi<Real>()/2) * 0.7;
+        if (L*(1+t) < const_pi<Real>()/2) z = scal * (-cos<Real>(L*(1+t)) - L+const_pi<Real>()/2);
+        else if (L*(1-t) < const_pi<Real>()/2) z = scal * (cos<Real>(L*(1-t)) + L-const_pi<Real>()/2);
+        else z = scal * L * t;
+
+        y = 0;
+        x = 0;
+        ex = 1;
+        ey = 0;
+        ez = 0;
+
+        if (L*(1+t) < const_pi<Real>()/2) r = scal * sin<Real>(L*(1+t));
+        else if (L*(1-t) < const_pi<Real>()/2) r = scal * sin<Real>(L*(1-t));
+        else r = scal;
+      };
       const Long Nobj = cnt.Dim();
 
       X.ReInit(0);
       R.ReInit(0);
       panel_len.ReInit(0);
-      Xc.ReInit(0);
       Mr_lst.ReInit(0);
       for (Long i = 0; i < Nobj; i++) {
         Real X0, Y0, Z0;
@@ -1023,18 +1048,37 @@ namespace sctl {
           X0 = (i/pow<0>(N))%N;
           Y0 = (i/pow<1>(N))%N;
           Z0 = (i/pow<2>(N))%N;
+
+          if (geom_type == Geom::Loop) {
+            if (Nobj>2) Z0 += drand48()*0.5;
+          } else if (geom_type == Geom::Bacteria) {
+            if (Nobj>2) {
+              X0 = X0*0.8 + drand48()*0.4;
+              Y0 = Y0*0.8 + drand48()*0.4;
+              Z0 = Z0*1.6 + drand48()*0.4;
+            } else {
+              X0 = X0*0.2;
+            }
+          } else {
+            SCTL_ASSERT(false); // not implemented
+          }
         }
-        if (Nobj>2) Z0 += drand48()*0.5;
 
         Real s_dsp = 0;
-        for (Long j = 0; j < cnt[i]; j++) {
+        for (Long j = 0; j < cnt[i]; j++) { // Set X, OrientVec, R
           panel_len.PushBack(1/(Real)cnt[i]);
           const Long ChebOrder_ = ChebOrder[dsp[i]+j];
           const auto& nds = SlenderElemList<Real>::CenterlineNodes(ChebOrder_);
           for (Long k = 0; k < ChebOrder_; k++) {
             Real x, y, z, ex, ey, ez, r;
             Real s = s_dsp + nds[k]*panel_len[dsp[i]+j];
-            loop_geom(x, y, z, ex, ey, ez, r, 2*const_pi<Real>()*s);
+            if (geom_type == Geom::Loop) {
+              loop_geom(x, y, z, ex, ey, ez, r, 2*const_pi<Real>()*s);
+            } else if (geom_type == Geom::Bacteria) {
+              bacteria_geom(x, y, z, ex, ey, ez, r, 2*const_pi<Real>()*s);
+            } else {
+              SCTL_ASSERT(false); // not implemented
+            }
             X.PushBack(x+X0);
             X.PushBack(y+Y0);
             X.PushBack(z+Z0);
@@ -1046,10 +1090,7 @@ namespace sctl {
           s_dsp += panel_len[dsp[i]+j];
         }
 
-        Xc.PushBack(X0);
-        Xc.PushBack(Y0);
-        Xc.PushBack(Z0);
-        for (Long j = 0; j < COORD_DIM; j++) {
+        for (Long j = 0; j < COORD_DIM; j++) { // Set Mr
           for (Long k = 0; k < COORD_DIM; k++) {
             Mr_lst.PushBack(j==k?1:0);
           }
@@ -1139,7 +1180,6 @@ namespace sctl {
     /**
      * Returns the center of mass of each object boundary.
      */
-    [[deprecated]]
     static void GetXc(Vector<Real>& Xc, const SlenderElemList<Real>& elem_lst, const Vector<Long>& obj_elem_cnt, const Vector<Long>& obj_elem_dsp, const Comm& comm) {
       Vector<Real> X_cheb_node_loc;
       elem_lst.GetNodeCoord(&X_cheb_node_loc, nullptr, nullptr);
@@ -1501,41 +1541,16 @@ namespace sctl {
       while (t < T && dt > eps*T) {
         RigidBodyList<Real> geom_ = geom;
 
-        Real max_err = 0;
-        Long Ngmres = 0;
-        Vector<Real> sigma;
-        if (time_step_order > 1) {
-          max_err = TimeStep(geom_, bg_flow, dt, ode_solver, time_step_tol*dt*0.1, quad_tol, gmres_tol);
-        } else { // First order, no adaptivity in time
+        Vector<Real> U, sigma;
+        Long Ngmres = 0, Nunknown = 0;
+        { // Compute U, sigma
           Vector<Real> X;
-          geom_.GetElemList().GetNodeCoord(&X, nullptr, nullptr);
+          geom.GetElemList().GetNodeCoord(&X, nullptr, nullptr);
           const Vector<Real> Ubg = bg_flow.Velocity(X);
-          Vector<Real> U = ComputeVelocity(geom_, Vector<Real>(), gmres_tol, quad_tol, &sigma, &Ngmres);
-
-          Vector<Real> Uc, Omega_c, Mr_lst;
-          geom_.GetRigidBodyMotion(Uc, Omega_c, U);
-          geom_.RotationMatrix(Mr_lst, Omega_c, dt);
-          geom_.RigidBodyUpdate(Uc*dt, Mr_lst);
+          const Vector<Real> U = ComputeVelocity(geom, Ubg, gmres_tol, quad_tol, &sigma, &Ngmres);
+          Nunknown = Allgather(sigma, comm_).Dim(); // TODO: do reduction instead
         }
-
-        if (max_err <= time_step_tol*dt) { // Accept solution
-          geom = geom_;
-          t = t + dt;
-        }
-
-        { // Adaptive refinement
-          if (!sigma.Dim()) {
-            Vector<Real> X;
-            geom.GetElemList().GetNodeCoord(&X, nullptr, nullptr);
-            const Vector<Real> Ubg = bg_flow.Velocity(X);
-            const Vector<Real> U = ComputeVelocity(geom, Ubg, gmres_tol, quad_tol, &sigma, &Ngmres);
-          }
-          Vector<Vector<Real>> density_function(1);
-          density_function[0].ReInit(sigma.Dim(), sigma.begin(), false);
-          geom.RefineAdaptive(density_function, geom_tol);
-        }
-
-        if (1) { // Write output
+        { // Write output
           RigidBodyList<Real> geom0 = geom_;
           geom0.GetElemList().WriteVTK(out_path + "./S" + std::to_string(idx), sigma, comm_);
           geom0.Write(out_path + "./geom" + std::to_string(idx));
@@ -1571,25 +1586,42 @@ namespace sctl {
 
             //geom.RigidBodyUpdate(dXc, Mr); // TODO: add this shift correctly
           }
-          idx++;
         }
-        if (!comm_.Rank()) std::cout<<"time = "<<t<<"     dt = "<<dt<<"     err = "<<max_err/dt<<"     Ngmres = "<<Ngmres<<'\n';
-        if (1) { //////////////////
-          Vector<Real> sigma_ = Allgather(sigma, comm_); // TODO: do reduction instead
-          if (!comm_.Rank()) std::cout<<"Number of unknowns = "<<sigma_.Dim()<<'\n';
+
+        Real max_err = 0;
+        if (time_step_order > 1) {
+          max_err = TimeStep(geom_, bg_flow, dt, ode_solver, time_step_tol*dt*0.1, quad_tol, gmres_tol);
+        } else { // First order, no adaptivity in time
+          Vector<Real> Uc, Omega_c, Mr_lst;
+          geom_.GetRigidBodyMotion(Uc, Omega_c, U);
+          geom_.RotationMatrix(Mr_lst, Omega_c, dt);
+          geom_.RigidBodyUpdate(Uc*dt, Mr_lst);
+        }
+
+        bool accept_solution = (max_err <= time_step_tol*dt);
+        if (!comm_.Rank()) std::cout<<(accept_solution?"Accepted":"Rejected")<<": t0 = "<<t<<"     dt = "<<dt<<"     err = "<<max_err/dt<<"     Ngmres = "<<Ngmres<<"     Nunknown = "<<Nunknown<<'\n';
+        if (accept_solution) { // Accept solution
+          geom = geom_;
+          t = t + dt;
+          idx++;
         }
 
         // Adjust time-step size (Quaife, Biros - JCP 2016)
         if (time_step_order > 1) dt = std::min<Real>(T-t, 0.7*dt*pow<Real>((time_step_tol*dt)/max_err, 1/(Real)(time_step_order)));
+        { // Adaptive refinement
+          Vector<Vector<Real>> density_function(1);
+          density_function[0].ReInit(sigma.Dim(), sigma.begin(), false);
+          geom.RefineAdaptive(density_function, geom_tol);
+        }
       }
       return t;
     }
 
-    static void test(const Comm& comm, const std::string& geom_file, const Long Nobj, const Real loop_rad, const Long start_idx = 0, const Long ts_order = 5, Real dt = 0.1, const Real T = 1000, const Real time_step_tol = 1e-7, const Real gmres_tol = 1e-10, const Real quad_tol = 1e-10, const Real geom_tol = 1e-8, const std::string& precond = "", const std::string& out_path = "vis/") {
-      RigidBodyList<Real> geom(comm, Nobj, loop_rad);
+    static void test(const Comm& comm, const std::string& geom_file, const typename RigidBodyList<Real>::Geom& geom_type, const Long Nobj, const Real loop_rad, const Long start_idx = 0, const Long ts_order = 5, Real dt = 0.1, const Real T = 1000, const Real time_step_tol = 1e-7, const Real gmres_tol = 1e-10, const Real quad_tol = 1e-10, const Real geom_tol = 1e-8, const std::string& precond = "", const std::string& out_path = "vis/") {
+      RigidBodyList<Real> geom(comm, Nobj, loop_rad, geom_type);
       if (!geom_file.empty()) geom.Read(geom_file);
 
-      RigidBodyList<Real> precond_geom(comm, 1, loop_rad);
+      RigidBodyList<Real> precond_geom(comm, 1, loop_rad, geom_type);
       if (!precond.empty()) precond_geom.Read(precond); // include loop_rad in filename
 
       const BgFlow<Real> bg_flow(comm);

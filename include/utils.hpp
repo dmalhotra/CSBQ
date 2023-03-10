@@ -224,37 +224,31 @@ template <class Real, class Ker> Vector<Real> bvp_solve_combined(const SlenderEl
   return Utrg;
 }
 
-
 /**
- * Build a torus geometry of radius 1 and given thickness.
+ * Build geometry from a given geometry function:
+ * geom_fn(Real& x, Real& y, Real& z, Real& r, const Real s)
  */
-template <class Real> void GeomEllipse(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Real Rmaj = 2, const Real Rmin = 0.5, const Real thickness = 0.001, const Long ChebOrder = 10) {
-  int npan = panel_len.Dim();
-  if (!npan) {
-    panel_len.ReInit(16);
-    panel_len = 1/(Real)panel_len.Dim();
-    GeomEllipse(elem_lst0, panel_len, FourierOrder, comm, Rmaj, Rmin, thickness, ChebOrder);
+template <class Real, class GeomFn> void GenericGeom(SlenderElemList<Real>& elem_lst0, const GeomFn& geom_fn, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Long ChebOrder = 10, const Long DefaultFourierOrder = 14, const Long DefaultNpanel = 16, const Real s_len = (Real)1) {
+  int Npanel = panel_len.Dim();
+  if (!Npanel) { // use DefaultNpanel of equal length
+    panel_len.ReInit(DefaultNpanel);
+    panel_len = s_len/(Real)panel_len.Dim();
+    GenericGeom<Real,GeomFn>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, DefaultFourierOrder, DefaultNpanel, s_len);
     return;
   }
-  if (FourierOrder.Dim() != npan) {
-    FourierOrder.ReInit(npan);
-    FourierOrder = 14;
+  if (FourierOrder.Dim() != Npanel) { // use DefaultFourierOrder
+    FourierOrder.ReInit(Npanel);
+    FourierOrder = DefaultFourierOrder;
   }
 
   const Long pid = comm.Rank();
   const Long Np = comm.Size();
-  const Long k0 = npan*(pid+0)/Np;
-  const Long k1 = npan*(pid+1)/Np;
+  const Long k0 = Npanel*(pid+0)/Np;
+  const Long k1 = Npanel*(pid+1)/Np;
 
   { // Set elem_lst0
-    auto loop_geom = [Rmaj,Rmin,thickness](Real& x, Real& y, Real& z, Real& r, const Real theta){
-      x = Rmaj * cos<Real>(theta);
-      y = Rmin * sin<Real>(theta);
-      z = 0;
-      r = thickness/2;
-    };
-    Vector<Real> panel_dsp(npan); panel_dsp = 0;
-    omp_par::scan(panel_len.begin(), panel_dsp.begin(), npan);
+    Vector<Real> panel_dsp(Npanel); panel_dsp = 0;
+    omp_par::scan(panel_len.begin(), panel_dsp.begin(), Npanel);
 
     Vector<Real> coord, radius;
     Vector<Long> cheb_order, fourier_order;
@@ -262,10 +256,7 @@ template <class Real> void GeomEllipse(SlenderElemList<Real>& elem_lst0, Vector<
       const auto& nds = SlenderElemList<Real>::CenterlineNodes(ChebOrder);
       for (Long i = 0; i < nds.Dim(); i++) {
         Real x, y, z, r;
-        //Real s = 2*const_pi<Real>()*(panel_dsp[k]+nds[i]*panel_len[k]);
-        //loop_geom(x, y, z, r, s + 0.2*cos(s+sqrt<Real>((Real)2.0)));
-        //radius.PushBack(r*(0.5+0.5*cos(s)));
-        loop_geom(x, y, z, r, 2*const_pi<Real>()*(panel_dsp[k]+nds[i]*panel_len[k]));
+        geom_fn(x, y, z, r, panel_dsp[k]+nds[i]*panel_len[k]);
         radius.PushBack(r);
         coord.PushBack(x);
         coord.PushBack(y);
@@ -278,29 +269,25 @@ template <class Real> void GeomEllipse(SlenderElemList<Real>& elem_lst0, Vector<
   }
 }
 
+/**
+ * Build a torus geometry of radius 1 and given thickness.
+ */
+template <class Real> void GeomEllipse(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Real Rmaj = 2, const Real Rmin = 0.5, const Real thickness = 0.001, const Long ChebOrder = 10) {
+  auto loop_geom = [Rmaj,Rmin,thickness](Real& x, Real& y, Real& z, Real& r, const Real s){
+    Real theta = 2*const_pi<Real>()*s;
+    x = Rmaj * cos<Real>(theta);
+    y = Rmin * sin<Real>(theta);
+    z = 0;
+    r = thickness/2;
+  };
+  GenericGeom(elem_lst0, loop_geom, panel_len, FourierOrder, comm, ChebOrder, 14, 16, (Real)1);
+}
 
 /**
  * Build geometry with two nearly touching tori with specified separation.
  */
 template <class Real> void GeomTouchingTori(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Real separation = 0.01, const Long ChebOrder = 10) {
-  int npan = panel_len.Dim();
-  if (!npan) {
-    panel_len.ReInit(32);
-    panel_len = 2/(Real)panel_len.Dim();
-    GeomTouchingTori(elem_lst0, panel_len, FourierOrder, comm, separation, ChebOrder);
-    return;
-  }
-  if (FourierOrder.Dim() != npan) {
-    FourierOrder.ReInit(npan);
-    FourierOrder = 14;
-  }
-
-  const Long pid = comm.Rank();
-  const Long Np = comm.Size();
-  const Long k0 = npan*(pid+0)/Np;
-  const Long k1 = npan*(pid+1)/Np;
-
-  { // Set elem_lst0
+  auto geom_fn = [separation](Real& x, Real& y, Real& z, Real& r, const Real s){
     auto loop_geom1 = [](Real& x, Real& y, Real& z, Real& r, const Real theta, Real x_shift){
       x = 2*cos<Real>(theta)+x_shift;
       y = 2*sin<Real>(theta);
@@ -313,51 +300,16 @@ template <class Real> void GeomTouchingTori(SlenderElemList<Real>& elem_lst0, Ve
       z = 2*sin<Real>(theta);
       r = 0.125;
     };
-    Vector<Real> panel_dsp(npan); panel_dsp = 0;
-    omp_par::scan(panel_len.begin(), panel_dsp.begin(), npan);
-
-    Vector<Real> coord, radius;
-    Vector<Long> cheb_order, fourier_order;
-    for (Long k = k0; k < k1; k++) { // Init elem_lst0
-      const auto& nds = SlenderElemList<Real>::CenterlineNodes(ChebOrder);
-      for (Long i = 0; i < nds.Dim(); i++) {
-        Real x, y, z, r;
-        Real s = panel_dsp[k]+nds[i]*panel_len[k];
-        if (s<1) loop_geom1(x, y, z, r, 2*const_pi<Real>()*s, -(1.875-separation/2));
-        else     loop_geom2(x, y, z, r, 2*const_pi<Real>()*s,  (1.875-separation/2));
-        coord.PushBack(x);
-        coord.PushBack(y);
-        coord.PushBack(z);
-        radius.PushBack(r);
-      }
-      cheb_order.PushBack(ChebOrder);
-      fourier_order.PushBack(FourierOrder[k]);
-    }
-    elem_lst0.Init(cheb_order, fourier_order, coord, radius);
-  }
+    if (s<1) loop_geom1(x, y, z, r, 2*const_pi<Real>()*s, -(1.875-separation/2));
+    else     loop_geom2(x, y, z, r, 2*const_pi<Real>()*s,  (1.875-separation/2));
+  };
+  GenericGeom(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 32, (Real)2);
 }
 
 /**
  * AB tangle geometry.
  */
 template <class Real> void GeomTangle(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Long ChebOrder = 10) {
-  int npan = panel_len.Dim();
-  if (!npan) {
-    panel_len.ReInit(40);
-    panel_len = 1/(Real)panel_len.Dim();
-    GeomTangle(elem_lst0, panel_len, FourierOrder, comm, ChebOrder);
-    return;
-  }
-  if (FourierOrder.Dim() != npan) {
-    FourierOrder.ReInit(npan);
-    FourierOrder = 14;
-  }
-
-  const Long pid = comm.Rank();
-  const Long Np = comm.Size();
-  const Long k0 = npan*(pid+0)/Np;
-  const Long k1 = npan*(pid+1)/Np;
-
   std::default_random_engine g;
   g.seed(0);         // fix random seed
   std::normal_distribution<double> randn(0.0,1.0);
@@ -372,92 +324,30 @@ template <class Real> void GeomTangle(SlenderElemList<Real>& elem_lst0, Vector<R
       co[i + 6*(j-1)] = ampl*randn(g);
   }
 
-  { // Initialize elem_lst0
-    Vector<Real> panel_dsp(npan); panel_dsp = 0;
-    omp_par::scan(panel_len.begin(), panel_dsp.begin(), npan);
-
-    Vector<Real> coord, radius;
-    Vector<Long> cheb_order, fourier_order;
-    for (sctl::Long k = k0; k < k1; k++) {   // loop over panels...
-      cheb_order.PushBack(ChebOrder);
-      fourier_order.PushBack(FourierOrder[k]);
-
-      const auto& nds = SlenderElemList<Real>::CenterlineNodes(ChebOrder);
-      Vector<Real> elem_coord(nds.Dim()*3), elem_radius(nds.Dim());   // just for this pan
-      elem_coord = 0.0;              // init ctrline nodes for this pan
-      for (int j=1; j<=tangle_freq; ++j) {
-        // add in j'th Fourier mode w/ these coeffs, for this panel...
-        for (Long i = 0; i < nds.Dim(); i++) {     // loop over ctrline nodes
-          // param (theta) domain for the i'th node in panel...
-          Real theta = 2*const_pi<Real>()*(panel_dsp[k]+nds[i]*panel_len[k]);
-          Real cmode = cos<Real>(j*theta), smode = sin<Real>(j*theta);
-          int o = 6*(j-1);     // offset index to j'th mode coeffs
-          elem_coord[i*3+0] += cmode*co[0+o] + smode*co[3+o];
-          elem_coord[i*3+1] += cmode*co[1+o] + smode*co[4+o];
-          elem_coord[i*3+2] += cmode*co[2+o] + smode*co[5+o];
-        }
-      }
-      for (Long i = 0; i < nds.Dim(); i++) {         // fill radii, this pan
-        Real theta = 2*const_pi<Real>()*(panel_dsp[k]+nds[i]*panel_len[k]);
-        elem_radius[i] = ((Real)0.005) * (((Real)2)+sin<Real>(theta+sqrt<Real>(2)));
-      }
-
-      // append to coord and radius
-      for (const auto x: elem_coord) coord.PushBack(x);
-      for (const auto r: elem_radius) radius.PushBack(r);
+  auto geom_fn = [&tangle_freq,&co](Real& x, Real& y, Real& z, Real& r, const Real s) { // Initialize elem_lst0
+    x = 0; y = 0; z = 0;
+    const Real theta = 2*const_pi<Real>()*s;
+    for (int j=1; j<=tangle_freq; ++j) {
+      // add in j'th Fourier mode w/ these coeffs, for this panel...
+      Real cmode = cos<Real>(j*theta), smode = sin<Real>(j*theta);
+      int o = 6*(j-1);     // offset index to j'th mode coeffs
+      x += cmode*co[0+o] + smode*co[3+o];
+      y += cmode*co[1+o] + smode*co[4+o];
+      z += cmode*co[2+o] + smode*co[5+o];
     }
-    elem_lst0.Init(cheb_order, fourier_order, coord, radius);     // send coords into this pan
-  }
+    r = ((Real)0.005) * (((Real)2)+sin<Real>(theta+sqrt<Real>(2)));
+  };
+  GenericGeom(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 40, (Real)1);
 }
 
 template <class Real> void GeomSphere(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Real R = 1, const Long ChebOrder = 10) {
-  int npan = panel_len.Dim();
-  if (!npan) {
-    panel_len.ReInit(24);
-    panel_len = 1/(Real)panel_len.Dim();
-    GeomSphere(elem_lst0, panel_len, FourierOrder, comm, R, ChebOrder);
-    return;
-  }
-  if (FourierOrder.Dim() != npan) {
-    FourierOrder.ReInit(npan);
-    FourierOrder = 14;
-  }
-
-  const Long pid = comm.Rank();
-  const Long Np = comm.Size();
-  const Long k0 = npan*(pid+0)/Np;
-  const Long k1 = npan*(pid+1)/Np;
-
-  { // Set elem_lst0
-    auto loop_geom = [R](Real& x, Real& y, Real& z, Real& r, const Real theta){
-      x = R * cos<Real>(theta/2);
-      y = 0;
-      z = 0;
-      r = R * sin<Real>(theta/2);
-    };
-    Vector<Real> panel_dsp(npan); panel_dsp = 0;
-    omp_par::scan(panel_len.begin(), panel_dsp.begin(), npan);
-
-    Vector<Real> coord, radius;
-    Vector<Long> cheb_order, fourier_order;
-    for (Long k = k0; k < k1; k++) { // Init elem_lst0
-      const auto& nds = SlenderElemList<Real>::CenterlineNodes(ChebOrder);
-      for (Long i = 0; i < nds.Dim(); i++) {
-        Real x, y, z, r;
-        //Real s = 2*const_pi<Real>()*(panel_dsp[k]+nds[i]*panel_len[k]);
-        //loop_geom(x, y, z, r, s + 0.2*cos(s+sqrt<Real>((Real)2.0)));
-        //radius.PushBack(r*(0.5+0.5*cos(s)));
-        loop_geom(x, y, z, r, 2*const_pi<Real>()*(panel_dsp[k]+nds[i]*panel_len[k]));
-        radius.PushBack(r);
-        coord.PushBack(x);
-        coord.PushBack(y);
-        coord.PushBack(z);
-      }
-      cheb_order.PushBack(ChebOrder);
-      fourier_order.PushBack(FourierOrder[k]);
-    }
-    elem_lst0.Init(cheb_order, fourier_order, coord, radius);
-  }
+  auto geom_fn = [R](Real& x, Real& y, Real& z, Real& r, const Real theta){
+    x = R * cos<Real>(theta/2);
+    y = 0;
+    z = 0;
+    r = R * sin<Real>(theta/2);
+  };
+  GenericGeom(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 24, (Real)1);
 }
 
 

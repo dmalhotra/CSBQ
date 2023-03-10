@@ -28,10 +28,18 @@ int main(int argc, char** argv) {
     Long start_idx = strtol(commandline_option(argc, argv, "-start_idx", "0"   , false, nullptr, comm), nullptr, 10);
     double dt      = strtod(commandline_option(argc, argv, "-dt"       , "0.1" , false, nullptr, comm), nullptr);
     double T       = strtod(commandline_option(argc, argv, "-T"        , "1000", false, nullptr, comm), nullptr);
+    Long omp_p     = strtol(commandline_option(argc, argv, "-omp"      , "1"   , false, nullptr, comm), nullptr, 10);
     commandline_option_end(argc, argv);
+    omp_set_num_threads(omp_p);
+
+    if (!comm.Rank()) {
+      for (Integer i = 0; i < argc; i++) {
+        std::cout<<argv[i]<<'\n';
+      }
+    }
 
     comm.Barrier();
-    Mobility<double>::test(comm, geom, Nobj, loop_rad, start_idx, ts_order, dt, T, ts_tol, gmres_tol, quad_tol, geom_tol, precond, out_path);
+    Mobility<double>::test(comm, geom, RigidBodyList<double>::Geom::Bacteria, Nobj, loop_rad, start_idx, ts_order, dt, T, ts_tol, gmres_tol, quad_tol, geom_tol, precond, out_path);
 
     //Mobility<double>::test_(comm);
 
