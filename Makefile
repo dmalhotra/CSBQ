@@ -1,6 +1,6 @@
 SCTL_INCLUDE_DIR = SCTL/include
 
-CXX=g++
+CXX=g++ # requires g++-8 or newer / icpc (with gcc compatibility 7.5 or newer) / clang++ with llvm-10 or newer
 CXXFLAGS = -std=c++11 -fopenmp -Wall -Wfloat-conversion # need C++11 and OpenMP
 
 #Optional flags
