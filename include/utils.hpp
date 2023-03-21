@@ -37,7 +37,10 @@ template <class Real, class Kernel> void double_layer_test(const SlenderElemList
   Profile::print(&comm);
 }
 
-template <class Real, class KerSL, class KerDL, class KerGrad> void test_greens_identity(const SlenderElemList<Real>& elem_lst0, const Comm& comm, Real tol) {
+/**
+ * Test Green's identity for Laplace and Stokes kernels.
+ */
+template <class Real, class KerSL, class KerDL, class KerGrad> void test_greens_identity(const SlenderElemList<Real>& elem_lst0, const Comm& comm, const Real tol, const Vector<Real> X0 = Vector<Real>{0.3,0.6,0.2}) {
   static constexpr Integer COORD_DIM = 3;
   const Long pid = comm.Rank();
 
@@ -55,12 +58,12 @@ template <class Real, class KerSL, class KerDL, class KerGrad> void test_greens_
   { // Set Fs, Fd, Uref
     elem_lst0.GetNodeCoord(&X, &Xn, nullptr);
 
-    Vector<Real> X0{0.3,0.6,0.2}, Xn0{0,0,0}, F0(KerSL::SrcDim()), dU;
-    for (auto& x : F0) x = drand48();
+    Vector<Real> Xn0{0,0,0}, F0(KerSL::SrcDim()), dU;
+    for (auto& x : F0) x = drand48()-0.5;
     kernel_sl  .Eval(Uref, X, X0, Xn0, F0);
     kernel_grad.Eval(dU  , X, X0, Xn0, F0);
 
-    Fd = -Uref;
+    Fd = Uref;
     { // Set Fs <-- -dot_prod(dU, Xn)
       constexpr Integer KDIM0 = KerSL::SrcDim();
       const Long N = X.Dim()/COORD_DIM;
@@ -84,13 +87,14 @@ template <class Real, class KerSL, class KerDL, class KerGrad> void test_greens_
   BIOpDL.ClearSetup();
   Us = 0; Ud = 0;
 
+  comm.Barrier();
   sctl::Profile::Enable(true);
   Profile::Tic("Setup+Eval", &comm);
   BIOpSL.ComputePotential(Us,Fs);
   BIOpDL.ComputePotential(Ud,Fd);
   Profile::Toc();
 
-  Vector<Real> Uerr = (-Fd*0.5 + Us + Ud) - Uref;
+  Vector<Real> Uerr = (Fd*0.5 + Us - Ud) - Uref;
   elem_lst0.WriteVTK("vis/Uerr0", Uerr, comm);
   { // Print error
     StaticArray<Real,2> max_err{0,0};
@@ -106,7 +110,11 @@ template <class Real, class KerSL, class KerDL, class KerGrad> void test_greens_
   sctl::Profile::Enable(false);
 }
 
-template <class Real, class KerSL, class KerDL> Vector<Real> bvp_solve(const SlenderElemList<Real>& elem_lst0, const Real tol, const Real gmres_tol, const Real SLScaling = 1.0, Vector<Real> V0 = Vector<Real>(), const Vector<Real> Xt = Vector<Real>(), const Comm& comm = Comm::World()) { // Solve exterior Dirichlet BVP: (1/2 + D + S * SLScaling) sigma = V0
+/**
+ * Solve exterior Dirichlet BVP: (1/2 + D + S * SLScaling) sigma = V0
+ * Solution at off-surface points Xt is returned.
+ */
+template <class Real, class KerSL, class KerDL> Vector<Real> bvp_solve(const SlenderElemList<Real>& elem_lst0, const Real tol, const Real gmres_tol, const Real SLScaling = 1.0, Vector<Real> V0 = Vector<Real>(), const Vector<Real> Xt = Vector<Real>(), const Comm& comm = Comm::World(), Vector<Real>* sigma_ = nullptr) {
   KerSL ker_sl;
   KerDL ker_dl;
   BoundaryIntegralOp<Real,KerSL> SLOp(ker_sl, false, comm);
@@ -124,6 +132,7 @@ template <class Real, class KerSL, class KerDL> Vector<Real> bvp_solve(const Sle
     SLOp.ClearSetup();
     DLOp.ClearSetup();
     Profile::Enable(prof_enable);
+    comm.Barrier();
   }
 
   auto BIOp = [&SLOp,&DLOp,&SLScaling](Vector<Real>* Ax, const Vector<Real>& x){
@@ -141,10 +150,11 @@ template <class Real, class KerSL, class KerDL> Vector<Real> bvp_solve(const Sle
   }
   Profile::Tic("Solve", &comm, true);
   ParallelSolver<Real> solver(comm);
-  solver(&sigma, BIOp, V0, gmres_tol);
+  solver(&sigma, BIOp, V0, gmres_tol, 200);
   Profile::Toc();
-  elem_lst0.WriteVTK("vis/sigma", sigma, comm);
 
+  if (sigma_) (*sigma_) = sigma;
+  elem_lst0.WriteVTK("vis/sigma", sigma, comm);
   Vector<Real> Utrg;
   { // Evaluate at Xt
     SLOp.SetTargetCoord(Xt);
@@ -158,24 +168,148 @@ template <class Real, class KerSL, class KerDL> Vector<Real> bvp_solve(const Sle
   return Utrg;
 }
 
+/**
+ * Solve exterior Dirichlet BVP: (1/2 + K) sigma = V0
+ * Solution at off-surface points Xt is returned.
+ */
+template <class Real, class Ker> Vector<Real> bvp_solve_combined(const SlenderElemList<Real>& elem_lst0, const Real tol, const Real gmres_tol, Vector<Real> V0 = Vector<Real>(), const Vector<Real> Xt = Vector<Real>(), const Comm& comm = Comm::World(), Vector<Real>* sigma_ = nullptr) { // Solve exterior Dirichlet BVP: (1/2 + D + S * SLScaling) sigma = V0
+  Ker ker;
+  BoundaryIntegralOp<Real,Ker> KerOp(ker, false, comm);
+  KerOp.AddElemList(elem_lst0);
+  KerOp.SetAccuracy(tol);
 
-template <class Real> void GeomTangle(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Long ChebOrder = 10) {
-  int npan = panel_len.Dim();
-  if (!npan) {
-    panel_len.ReInit(40);
-    panel_len = 1/(Real)panel_len.Dim();
-    return GeomTangle(elem_lst0, panel_len, FourierOrder, comm, ChebOrder);
+  { // Warmup
+    bool prof_enable = Profile::Enable(false);
+    Vector<Real> F(KerOp.Dim(0)), U; F = 1;
+    KerOp.ComputePotential(U,F);
+    KerOp.ClearSetup();
+    Profile::Enable(prof_enable);
   }
-  if (FourierOrder.Dim() != npan) {
-    FourierOrder.ReInit(npan);
-    FourierOrder = 14;
+
+  auto BIOp = [&KerOp](Vector<Real>* Ax, const Vector<Real>& x){
+    Vector<Real> U;
+    KerOp.ComputePotential(U,x);
+    (*Ax) = x*0.5 + U;
+  };
+
+  const Long N = KerOp.Dim(0);
+  Vector<Real> sigma;
+  if (V0.Dim() != N) {
+    V0.ReInit(N);
+    V0 = 1;
+  }
+  //comm.Barrier();
+  //KerOp.Setup();
+  //KerOp.ClearSetup();
+  //comm.Barrier();
+  //KerOp.Setup();
+  //KerOp.ClearSetup();
+  //comm.Barrier();
+  //KerOp.Setup();
+  Profile::Tic("Solve", &comm, true);
+  ParallelSolver<Real> solver(comm);
+  solver(&sigma, BIOp, V0, gmres_tol, 200);
+  Profile::Toc();
+
+  if (sigma_) (*sigma_) = sigma;
+  elem_lst0.WriteVTK("vis/sigma", sigma, comm);
+  Vector<Real> Utrg;
+  if (Xt.Dim()) { // Evaluate at Xt
+    KerOp.SetTargetCoord(Xt);
+
+    Vector<Real> U;
+    KerOp.ComputePotential(U,sigma);
+    Utrg = U;
+  }
+  return Utrg;
+}
+
+/**
+ * Build geometry from a given geometry function:
+ * geom_fn(Real& x, Real& y, Real& z, Real& r, const Real s)
+ */
+template <class Real, class GeomFn> void GenericGeom(SlenderElemList<Real>& elem_lst0, const GeomFn& geom_fn, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Long ChebOrder = 10, const Long DefaultFourierOrder = 14, const Long DefaultNpanel = 16, const Real s_len = (Real)1) {
+  int Npanel = panel_len.Dim();
+  if (!Npanel) { // use DefaultNpanel of equal length
+    panel_len.ReInit(DefaultNpanel);
+    panel_len = s_len/(Real)panel_len.Dim();
+    GenericGeom<Real,GeomFn>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, DefaultFourierOrder, DefaultNpanel, s_len);
+    return;
+  }
+  if (FourierOrder.Dim() != Npanel) { // use DefaultFourierOrder
+    FourierOrder.ReInit(Npanel);
+    FourierOrder = DefaultFourierOrder;
   }
 
   const Long pid = comm.Rank();
   const Long Np = comm.Size();
-  const Long k0 = npan*(pid+0)/Np;
-  const Long k1 = npan*(pid+1)/Np;
+  const Long k0 = Npanel*(pid+0)/Np;
+  const Long k1 = Npanel*(pid+1)/Np;
 
+  { // Set elem_lst0
+    Vector<Real> panel_dsp(Npanel); panel_dsp = 0;
+    omp_par::scan(panel_len.begin(), panel_dsp.begin(), Npanel);
+
+    Vector<Real> coord, radius;
+    Vector<Long> cheb_order, fourier_order;
+    for (Long k = k0; k < k1; k++) { // Init elem_lst0
+      const auto& nds = SlenderElemList<Real>::CenterlineNodes(ChebOrder);
+      for (Long i = 0; i < nds.Dim(); i++) {
+        Real x, y, z, r;
+        geom_fn(x, y, z, r, panel_dsp[k]+nds[i]*panel_len[k]);
+        radius.PushBack(r);
+        coord.PushBack(x);
+        coord.PushBack(y);
+        coord.PushBack(z);
+      }
+      cheb_order.PushBack(ChebOrder);
+      fourier_order.PushBack(FourierOrder[k]);
+    }
+    elem_lst0.Init(cheb_order, fourier_order, coord, radius);
+  }
+}
+
+/**
+ * Build a torus geometry of radius 1 and given thickness.
+ */
+template <class Real> void GeomEllipse(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Real Rmaj = 2, const Real Rmin = 0.5, const Real thickness = 0.001, const Long ChebOrder = 10) {
+  auto loop_geom = [Rmaj,Rmin,thickness](Real& x, Real& y, Real& z, Real& r, const Real s){
+    Real theta = 2*const_pi<Real>()*s;
+    x = Rmaj * cos<Real>(theta);
+    y = Rmin * sin<Real>(theta);
+    z = 0;
+    r = thickness/2;
+  };
+  GenericGeom(elem_lst0, loop_geom, panel_len, FourierOrder, comm, ChebOrder, 14, 16, (Real)1);
+}
+
+/**
+ * Build geometry with two nearly touching tori with specified separation.
+ */
+template <class Real> void GeomTouchingTori(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Real separation = 0.01, const Long ChebOrder = 10) {
+  auto geom_fn = [separation](Real& x, Real& y, Real& z, Real& r, const Real s){
+    auto loop_geom1 = [](Real& x, Real& y, Real& z, Real& r, const Real theta, Real x_shift){
+      x = 2*cos<Real>(theta)+x_shift;
+      y = 2*sin<Real>(theta);
+      z = 0;
+      r = 0.125;
+    };
+    auto loop_geom2 = [](Real& x, Real& y, Real& z, Real& r, const Real theta, Real x_shift){
+      x = 2*cos<Real>(theta)+x_shift;
+      y = 0;
+      z = 2*sin<Real>(theta);
+      r = 0.125;
+    };
+    if (s<1) loop_geom1(x, y, z, r, 2*const_pi<Real>()*s, -(1.875-separation/2));
+    else     loop_geom2(x, y, z, r, 2*const_pi<Real>()*s,  (1.875-separation/2));
+  };
+  GenericGeom(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 32, (Real)2);
+}
+
+/**
+ * AB tangle geometry.
+ */
+template <class Real> void GeomTangle(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Long ChebOrder = 10) {
   std::default_random_engine g;
   g.seed(0);         // fix random seed
   std::normal_distribution<double> randn(0.0,1.0);
@@ -190,90 +324,159 @@ template <class Real> void GeomTangle(SlenderElemList<Real>& elem_lst0, Vector<R
       co[i + 6*(j-1)] = ampl*randn(g);
   }
 
-  { // Initialize elem_lst0
-    Vector<Real> panel_dsp(npan); panel_dsp = 0;
-    omp_par::scan(panel_len.begin(), panel_dsp.begin(), npan);
+  auto geom_fn = [&tangle_freq,&co](Real& x, Real& y, Real& z, Real& r, const Real s) { // Initialize elem_lst0
+    x = 0; y = 0; z = 0;
+    const Real theta = 2*const_pi<Real>()*s;
+    for (int j=1; j<=tangle_freq; ++j) {
+      // add in j'th Fourier mode w/ these coeffs, for this panel...
+      Real cmode = cos<Real>(j*theta), smode = sin<Real>(j*theta);
+      int o = 6*(j-1);     // offset index to j'th mode coeffs
+      x += cmode*co[0+o] + smode*co[3+o];
+      y += cmode*co[1+o] + smode*co[4+o];
+      z += cmode*co[2+o] + smode*co[5+o];
+    }
+    r = ((Real)0.005) * (((Real)2)+sin<Real>(theta+sqrt<Real>(2)));
+  };
+  GenericGeom(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 40, (Real)1);
+}
 
-    Vector<Real> coord, radius;
-    Vector<Long> cheb_order, fourier_order;
-    for (sctl::Long k = k0; k < k1; k++) {   // loop over panels...
-      cheb_order.PushBack(ChebOrder);
-      fourier_order.PushBack(FourierOrder[k]);
+template <class Real> void GeomSphere(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Real R = 1, const Long ChebOrder = 10) {
+  auto geom_fn = [R](Real& x, Real& y, Real& z, Real& r, const Real theta){
+    x = R * cos<Real>(theta/2);
+    y = 0;
+    z = 0;
+    r = R * sin<Real>(theta/2);
+  };
+  GenericGeom(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 24, (Real)1);
+}
 
-      const auto& nds = SlenderElemList<Real>::CenterlineNodes(ChebOrder);
-      Vector<Real> elem_coord(nds.Dim()*3), elem_radius(nds.Dim());   // just for this pan
-      elem_coord = 0.0;              // init ctrline nodes for this pan
-      for (int j=1; j<=tangle_freq; ++j) {
-        // add in j'th Fourier mode w/ these coeffs, for this panel...
-        for (Long i = 0; i < nds.Dim(); i++) {     // loop over ctrline nodes
-          // param (theta) domain for the i'th node in panel...
-          Real theta = 2*const_pi<Real>()*(panel_dsp[k]+nds[i]*panel_len[k]);
-          Real cmode = cos<Real>(j*theta), smode = sin<Real>(j*theta);
-          int o = 6*(j-1);     // offset index to j'th mode coeffs
-          elem_coord[i*3+0] += cmode*co[0+o] + smode*co[3+o];
-          elem_coord[i*3+1] += cmode*co[1+o] + smode*co[4+o];
-          elem_coord[i*3+2] += cmode*co[2+o] + smode*co[5+o];
+
+/**
+ * Uniform discretization of a cube, along with visualization routines.
+ */
+template <class Real> class CubeVolumeVis {
+    static constexpr Integer COORD_DIM = 3;
+  public:
+
+    CubeVolumeVis() = default;
+
+    CubeVolumeVis(const Long N_, Real L, const Comm& comm = Comm::Self()) : N(N_) {
+      const Long pid = comm.Rank();
+      const Long Np = comm.Size();
+
+      const Long NN = pow<COORD_DIM-1,Long>(N);
+      const Long a = (N-1)*(pid+0)/Np;
+      const Long b = (N-1)*(pid+1)/Np;
+      N0 = b-a+1;
+      if (N0<2) return;
+
+      coord.ReInit(N0 * NN * COORD_DIM);
+      for (Long i = 0; i < N0; i++) {
+        for (Long j = 0; j < NN; j++) {
+          for (Long k = 0; k < COORD_DIM; k++) {
+            Long idx = ((i+a)*NN+j);
+            coord[(i*NN+j)*COORD_DIM+k] = (((idx/pow<Long>(N,k)) % N)/(Real)(N-1)*2 - 1) * L;
+          }
         }
       }
-      for (Long i = 0; i < nds.Dim(); i++) {         // fill radii, this pan
-        Real theta = 2*const_pi<Real>()*(panel_dsp[k]+nds[i]*panel_len[k]);
-        elem_radius[i] = ((Real)0.005) * (((Real)2)+sin<Real>(theta+sqrt<Real>(2)));
-      }
-
-      // append to coord and radius
-      for (const auto x: elem_coord) coord.PushBack(x);
-      for (const auto r: elem_radius) radius.PushBack(r);
     }
-    elem_lst0.Init(cheb_order, fourier_order, coord, radius);     // send coords into this pan
+
+    const Vector<Real>& GetCoord() const {
+      return coord;
+    }
+
+    void GetVTUData(VTUData& vtu_data, const Vector<Real>& F) const {
+      for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
+      for (const auto& x :     F) vtu_data.value.PushBack((float)x);
+      for (Long i = 0; i < N0-1; i++) {
+        for (Long j = 0; j < N-1; j++) {
+          for (Long k = 0; k < N-1; k++) {
+            auto idx = [this](Long i, Long j, Long k) {
+              return (i*N+j)*N+k;
+            };
+            vtu_data.connect.PushBack(idx(i+0,j+0,k+0));
+            vtu_data.connect.PushBack(idx(i+0,j+0,k+1));
+            vtu_data.connect.PushBack(idx(i+0,j+1,k+1));
+            vtu_data.connect.PushBack(idx(i+0,j+1,k+0));
+            vtu_data.connect.PushBack(idx(i+1,j+0,k+0));
+            vtu_data.connect.PushBack(idx(i+1,j+0,k+1));
+            vtu_data.connect.PushBack(idx(i+1,j+1,k+1));
+            vtu_data.connect.PushBack(idx(i+1,j+1,k+0));
+            vtu_data.offset.PushBack(vtu_data.connect.Dim());;
+            vtu_data.types.PushBack(12);
+          }
+        }
+      }
+    }
+    void WriteVTK(const std::string& fname, const Vector<Real>& F, const Comm& comm) const {
+      VTUData vtu_data;
+      GetVTUData(vtu_data, F);
+      vtu_data.WriteVTK(fname, comm);
+    }
+
+  private:
+
+    Long N, N0;
+    Vector<Real> coord;
+};
+
+
+
+void commandline_option_start(int argc, char** argv, const char* help_text = nullptr, const Comm& comm = Comm::Self()) {
+  if (comm.Rank()) return;
+  char help[] = "--help";
+  for (int i = 0; i < argc; i++) {
+    if (!strcmp(argv[i], help)) {
+      if (help_text != NULL) std::cout<<help_text<<'\n';
+      std::cout<<"Usage:\n";
+      std::cout<<"  "<<argv[0]<<" [options]\n\n";
+    }
   }
 }
 
-template <class Real> void GeomTorus(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Real thickness = 0.01, const Long ChebOrder = 10) {
-  int npan = panel_len.Dim();
-  if (!npan) {
-    panel_len.ReInit(16);
-    panel_len = 1/(Real)panel_len.Dim();
-    return GeomTorus(elem_lst0, panel_len, FourierOrder, comm, thickness, ChebOrder);
-  }
-  if (FourierOrder.Dim() != npan) {
-    FourierOrder.ReInit(npan);
-    FourierOrder = 14;
-  }
-
-  const Long pid = comm.Rank();
-  const Long Np = comm.Size();
-  const Long k0 = npan*(pid+0)/Np;
-  const Long k1 = npan*(pid+1)/Np;
-
-  { // Set elem_lst0
-    auto loop_geom = [&thickness](Real& x, Real& y, Real& z, Real& r, const Real theta){
-      x = cos<Real>(theta);
-      y = sin<Real>(theta);
-      z = 0.1*sin<Real>(theta-sqrt<Real>(2));
-      r = thickness*(2+sin<Real>(theta+sqrt<Real>(2)));
-    };
-    Vector<Real> panel_dsp(npan); panel_dsp = 0;
-    omp_par::scan(panel_len.begin(), panel_dsp.begin(), npan);
-
-    Vector<Real> coord, radius;
-    Vector<Long> cheb_order, fourier_order;
-    for (Long k = k0; k < k1; k++) { // Init elem_lst0
-      const auto& nds = SlenderElemList<Real>::CenterlineNodes(ChebOrder);
-      for (Long i = 0; i < nds.Dim(); i++) {
-        Real x, y, z, r;
-        loop_geom(x, y, z, r, 2*const_pi<Real>()*(panel_dsp[k]+nds[i]*panel_len[k]));
-        coord.PushBack(x);
-        coord.PushBack(y);
-        coord.PushBack(z);
-        radius.PushBack(r);
-      }
-      cheb_order.PushBack(ChebOrder);
-      fourier_order.PushBack(FourierOrder[k]);
+const char* commandline_option(int argc, char** argv, const char* opt, const char* def_val, bool required, const char* err_msg, const Comm& comm = Comm::Self()){
+  char help[] = "--help";
+  for (int i = 0; i < argc; i++) {
+    if (!strcmp(argv[i], help)) {
+      if (!comm.Rank()) std::cout<<"        "<<std::setw(10)<<opt<<" = ["<<std::setw(10)<<def_val<<"]  "<<(err_msg?err_msg:"")<<'\n';
+      return def_val;
     }
-    elem_lst0.Init(cheb_order, fourier_order, coord, radius);
+  }
+
+  for (int i = 0; i < argc; i++) {
+    if (!strcmp(argv[i], opt)) {
+      return argv[(i+1)%argc];
+    }
+  }
+  if (required) {
+    if (!comm.Rank()) std::cout<<"Missing: required option\n"<<"    "<<opt<<" : "<<(err_msg?err_msg:"")<<"\n\n";
+    if (!comm.Rank()) std::cout<<"To see usage options\n"<<"    "<<argv[0]<<" --help\n\n";
+    exit(0);
+  }
+  return def_val;
+}
+
+void commandline_option_end(int argc, char** argv) {
+  char help[] = "--help";
+  for (int i = 0; i < argc; i++) {
+    if (!strcmp(argv[i], help)) {
+      exit(0);
+    }
   }
 }
 
+bool to_bool(std::string str) {
+  std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+  std::istringstream is(str);
+  bool b;
+  is >> std::boolalpha >> b;
+  return b;
+}
+
+
+
+// Unused functions
+#if 0
 template <class Real> class SlenderVolumeVis {
     static constexpr Integer COORD_DIM = 3;
     static constexpr Integer Nlevels = 15;
@@ -370,126 +573,10 @@ template <class Real> class SlenderVolumeVis {
     Vector<Long> fourier_order;
     Vector<Real> coord;
 };
+#endif
 
-template <class Real> class CubeVolumeVis {
-    static constexpr Integer COORD_DIM = 3;
-  public:
-
-    CubeVolumeVis() = default;
-
-    CubeVolumeVis(const Long N_, Real L, const Comm& comm = Comm::Self()) : N(N_) {
-      const Long pid = comm.Rank();
-      const Long Np = comm.Size();
-
-      const Long NN = pow<COORD_DIM-1,Long>(N);
-      const Long a = (N-1)*(pid+0)/Np;
-      const Long b = (N-1)*(pid+1)/Np;
-      N0 = b-a+1;
-      if (N0<2) return;
-
-      coord.ReInit(N0 * NN * COORD_DIM);
-      for (Long i = 0; i < N0; i++) {
-        for (Long j = 0; j < NN; j++) {
-          for (Long k = 0; k < COORD_DIM; k++) {
-            Long idx = ((i+a)*NN+j);
-            coord[(i*NN+j)*COORD_DIM+k] = (((idx/pow<Long>(N,k)) % N)/(Real)(N-1)*2 - 1) * L;
-          }
-        }
-      }
-    }
-
-    const Vector<Real>& GetCoord() const {
-      return coord;
-    }
-
-    void GetVTUData(VTUData& vtu_data, const Vector<Real>& F) const {
-      for (const auto& x : coord) vtu_data.coord.PushBack((float)x);
-      for (const auto& x :     F) vtu_data.value.PushBack((float)x);
-      for (Long i = 0; i < N0-1; i++) {
-        for (Long j = 0; j < N-1; j++) {
-          for (Long k = 0; k < N-1; k++) {
-            auto idx = [this](Long i, Long j, Long k) {
-              return (i*N+j)*N+k;
-            };
-            vtu_data.connect.PushBack(idx(i+0,j+0,k+0));
-            vtu_data.connect.PushBack(idx(i+0,j+0,k+1));
-            vtu_data.connect.PushBack(idx(i+0,j+1,k+1));
-            vtu_data.connect.PushBack(idx(i+0,j+1,k+0));
-            vtu_data.connect.PushBack(idx(i+1,j+0,k+0));
-            vtu_data.connect.PushBack(idx(i+1,j+0,k+1));
-            vtu_data.connect.PushBack(idx(i+1,j+1,k+1));
-            vtu_data.connect.PushBack(idx(i+1,j+1,k+0));
-            vtu_data.offset.PushBack(vtu_data.connect.Dim());;
-            vtu_data.types.PushBack(12);
-          }
-        }
-      }
-    }
-    void WriteVTK(const std::string& fname, const Vector<Real>& F, const Comm& comm) const {
-      VTUData vtu_data;
-      GetVTUData(vtu_data, F);
-      vtu_data.WriteVTK(fname, comm);
-    }
-
-  private:
-
-    Long N, N0;
-    Vector<Real> coord;
-};
-
-
-
-void commandline_option_start(int argc, char** argv, const char* help_text = nullptr, const Comm& comm = Comm::Self()) {
-  if (comm.Rank()) return;
-  char help[] = "--help";
-  for (int i = 0; i < argc; i++) {
-    if (!strcmp(argv[i], help)) {
-      if (help_text != NULL) std::cout<<help_text<<'\n';
-      std::cout<<"Usage:\n";
-      std::cout<<"  "<<argv[0]<<" [options]\n\n";
-    }
-  }
-}
-
-const char* commandline_option(int argc, char** argv, const char* opt, const char* def_val, bool required, const char* err_msg, const Comm& comm = Comm::Self()){
-  char help[] = "--help";
-  for (int i = 0; i < argc; i++) {
-    if (!strcmp(argv[i], help)) {
-      if (!comm.Rank()) std::cout<<"        "<<std::setw(10)<<opt<<" = ["<<std::setw(10)<<def_val<<"]  "<<err_msg<<'\n';
-      return def_val;
-    }
-  }
-
-  for (int i = 0; i < argc; i++) {
-    if (!strcmp(argv[i], opt)) {
-      return argv[(i+1)%argc];
-    }
-  }
-  if (required) {
-    if (!comm.Rank()) std::cout<<"Missing: required option\n"<<"    "<<err_msg<<"\n\n";
-    if (!comm.Rank()) std::cout<<"To see usage options\n"<<"    "<<argv[0]<<" --help\n\n";
-    exit(0);
-  }
-  return def_val;
-}
-
-void commandline_option_end(int argc, char** argv) {
-  char help[] = "--help";
-  for (int i = 0; i < argc; i++) {
-    if (!strcmp(argv[i], help)) {
-      exit(0);
-    }
-  }
-}
-
-bool to_bool(std::string str) {
-  std::transform(str.begin(), str.end(), str.begin(), ::tolower);
-  std::istringstream is(str);
-  bool b;
-  is >> std::boolalpha >> b;
-  return b;
-}
 
 }
 
 #endif
+
