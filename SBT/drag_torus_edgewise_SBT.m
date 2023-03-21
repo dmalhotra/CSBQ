@@ -31,9 +31,9 @@ for i=1:numel(npans)         % h-convergence study ..........
   A = (1/(8*pi*mu)) * ( Lambda + K );    % usual SBT prefac, system mat
   u = kron(ones(N,1),[1;0;0]);           % const edgewise vel U = (1,0,0)
   f = A\u;
+  f = reshape(f,[3 N]);                  % each col a 3-vec
   w = vertcat(pan.w);                    % arc-len quadr wei per nodes, col
-  f = reshape(f,[3 N]);                  % each row a Cartesian
-  F = sum(w'.*f,2);                      % total force vec = rowwise wei sum
+  F = f*w;                               % use quadr for total force vec
   fprintf('N=%d:\tdrag force F=(%.16g, %.3g, %.3g) \tcond(A)=%.3g\n',N,F(1),F(2),F(3),cond(A))  % cond growing when N>1/eps since spec denser @ 0
 end                          % .............................
 

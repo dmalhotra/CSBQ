@@ -3,10 +3,10 @@ function K = nyst_Kzz_SBT(pan,sbrk,o)
 %
 % K = nyst_Kzz_SBT(pan,sbrk,o) fills a square matrix, a high-order Nystrom
 %  discretization of the zz-component of the Keller-Rubinow classical SBT
-%  operator which applies in the case of smooth closed centerline in a z=const
-%  plane. This is a scalar case, without any "Rhat" or "shat" outer prod terms.
-%  It is indep of the fiber radius (which only affects the Lambda(s) "local"
-%  term, not included here).
+%  operator which applies in the case of one closed centerline in
+%  a z=const plane. This is a scalar case, without any "Rhat" or "shat" outer
+%  prod terms. It is indep of the fiber radius (which only affects the Lambda(s)
+%  "local" term, not included here).
 %  We require arc-length parameters of the nodes and their arc-length weights.
 %  Order p is assumed same for each panel.
 %
@@ -14,7 +14,8 @@ function K = nyst_Kzz_SBT(pan,sbrk,o)
 %  pan - a struct array (one struct per panel) with fields:
 %        x = nodes (3*p array)
 %        w = weights for arc-length quadrature (length-p col vec)
-%        s = arc-length coords of nodes, wrt fixed origin on centerline (")
+%        s = arc-length coords of nodes, wrt fixed centerline point (")
+%        ipl, ipr = indices of left (lower) and right (upper) nei in pan list.
 %  sbrk - panel-breakpoints in arc-length coords (length npan+1 vec).
 %        For now, must have sbrk(1)=0 and sbrk(end)=L, setting the perimeter.
 %  o - optional struct with optional fields:
@@ -52,7 +53,7 @@ if ~isfield(o,'paux'), o.paux=2*p; end    % reasonable amount of oversampling
 K = nan(N,N);          % fill K mat...
 Bii = nan(p,N);        % working array for the block row of the 2nd 1/sin term
 for ip=1:npan          % target pans (block rows)
-  ipl = mod(ip-2,npan)+1; ipr = mod(ip,npan)+1;     % left & right pan inds
+  ipl = pan(ip).ipl; ipr = pan(ip).ipr;            % left & right pan inds
   jfar = find((1:npan ~= ipl) & (1:npan ~= ip) & (1:npan ~= ipr));  % far pans
   jjfar = ones(p,1)*(p*(jfar-1)) + (1:p)';         % convert to far node inds
   jjfar = jjfar(:);

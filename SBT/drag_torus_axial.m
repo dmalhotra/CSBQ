@@ -22,7 +22,7 @@
 % modes indices {-1,0,1} in the SBT approx, which is the only approx known
 % apart from Dhairya's code.
 % SBT can be solved analytically in Fourier modes, as in
-% Johnson-Wu '79, formula on p.272, believed O(eps^.log(1/eps)) accurate as
+% Johnson-Wu '79, formula on p.272, believed O(eps^2.log(1/eps)) accurate as
 % with SBT in general for smooth cases.
 %
 % Barnett 1/5/22 (axial); added edgewise drag for fun 1/17/22.

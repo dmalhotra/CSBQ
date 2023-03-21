@@ -7,7 +7,7 @@
 clear; verb = 1;
 
 mu = 1;               % fluid viscosity
-eps = 1e-3;           % radius (const)
+eps = 1e-3;   % radius (const) % 0.05054952 gets converged kappa > 1e8
 
 a = 2; b = 0.5;       % semiaxes
 Z = ellipse_map(a,b,eye(3),zeros(3,1));       % ellipse, xy-plane
@@ -32,9 +32,9 @@ for i=1:numel(npans)         % h-convergence study ..........
   A = (1/(8*pi*mu)) * ( Lambda + K );    % system mat
   u = kron(ones(N,1),U);                 % RHS: const vel vec U at all nodes
   f = A\u;
+  f = reshape(f,[3 N]);                  % each col a 3-vec
   w = vertcat(pan.w);                    % arc-len quadr wei for nodes, col
-  f = reshape(f,[3 N]);                  % each row a Cartesian cmpt
-  F = sum(w'.*f,2);                       % total force vec
+  F = f*w;                               % use quadr for total force vec
   fprintf('N=%d:\tF=(\t%.12g\t%.12g\t%.12g)\tk(A)=%.3g\n',N,F(1),F(2),F(3),cond(A))
 end                           % ..............................
 
@@ -42,7 +42,7 @@ if verb
   figure(1); clf; subplot(2,1,1); showcurve(pan,gca); title('curve panels');
   hold on; plot3([0 U(1)],[0 U(2)],[0 U(3)],'k.-'); text(U(1),U(2),U(3),'U');
   s = vertcat(pan.s);                    % arc coords of nodes
-  subplot(2,1,2); plot(s,f,'.-'); axis tight; title('solution f(s)');
+  subplot(2,1,2); plot(s,f,'.-'); axis tight; title(sprintf('solution f(s), for \\epsilon=%g',eps));
   legend('f_x','f_y','f_z');
   xlabel('s (arc-length coord)'); ylabel('f (force density cmpnt)');
   % print -dpng figs/drag_curve_ellipse.png

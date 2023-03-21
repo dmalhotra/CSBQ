@@ -15,6 +15,7 @@ function K = nyst_K_SBT(pan,sbrk,o)
 %        tx = unit tangents ("\hat{s}") at nodes (3*p array)
 %        w = weights for arc-length quadrature (length-p col vec)
 %        s = arc-length coords of nodes, wrt fixed origin on centerline (")
+%        ipl, ipr = indices of panels (in pan struct array) to left and right
 %  sbrk - panel-breakpoints in arc-length coords (length npan+1 vec).
 %        For now, must have sbrk(1)=0 and sbrk(end)=L, setting the perimeter.
 %  o - optional struct with optional fields:
@@ -44,7 +45,7 @@ if nargin==0, test_nyst_K_SBT; return; end
 if nargin<3, o=[]; end
 
 npan = numel(pan);
-p = numel(pan(1).w);   % order (assumed same for each pan)
+p = numel(pan(1).w);   % order (number of nodes per pan, assumed same for each pan)
 
 if numel(sbrk)~=npan+1; warning('sbrk should have numel(pan)+1 elements!'); end
 L = sbrk(end); if L<=0, error('period must be positive!'); end     % period
@@ -61,19 +62,19 @@ if ~isfield(o,'paux'), o.paux=2*p; end    % reasonable amount of oversampling
 K = nan(3*N,3*N);      % fill K mat
 Bii = nan(3*p,3*N);    % working array for the block row of the 2nd 1/sin term
 for ip=1:npan          % target pans (block rows)
-  ipl = mod(ip-2,npan)+1; ipr = mod(ip,npan)+1;     % left & right pan inds
+  ipl = pan(ip).ipl; ipr = pan(ip).ipr;             % left & right pan inds
   jfar = find((1:npan ~= ipl) & (1:npan ~= ip) & (1:npan ~= ipr));  % far pans
-  jjfar = ones(p,1)*(p*(jfar-1)) + (1:p)';         % convert to far node inds
+  jjfar = ones(p,1)*(p*(jfar-1)) + (1:p)';          % convert to far node inds
   jjfar = jjfar(:);
   nfar = numel(jjfar);
-  jjfar3 = ones(3*p,1)*(3*p*(jfar-1)) + (1:3*p)';         % far input inds
+  jjfar3 = ones(3*p,1)*(3*p*(jfar-1)) + (1:3*p)';   % far input inds
   jjfar3 = jjfar3(:);
   ii = (1:p)+(ip-1)*p;   % block node indices for target pan
   ii3 = (1:3*p)+(ip-1)*3*p;   % this pan output (row) indices
   dx = x(1,ii)' - x(1,jjfar);    % go Cartesian, each cmpnt p-by-(npan-3)p
   dy = x(2,ii)' - x(2,jjfar);
   dz = x(3,ii)' - x(3,jjfar);
-  invRdist = 1./sqrt(dx.^2+dy.^2+dz.^2);      % 1/R matrix, p*nfar
+  invRdist = 1./sqrt(dx.^2+dy.^2+dz.^2);            % 1/R matrix, p*nfar
   dx = dx.*invRdist; dy = dy.*invRdist; dz = dz.*invRdist; % (dx,dy,dz) now Rhat
   IRR = [1+dx.^2, dx.*dy, dx.*dz; dy.*dx, 1+dy.^2, dy.*dz; dz.*dx, dz.*dy, 1+dz.^2];  % I + Rhat.Rhat^T but wrong ord: node inds fast, xyz inds slow
   ker = IRR(inds3(p),inds3(nfar)) .* kron(invRdist,ones(3));  % reord, vals

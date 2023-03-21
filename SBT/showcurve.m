@@ -26,5 +26,5 @@ for i=1:numel(pan)
     plot3(x(1,:)+[0;l]*tx(1,:),x(2,:)+[0;l]*tx(2,:),x(3,:)+[0;l]*tx(3,:),'-', 'color',c);
   end
 end
-set(gca,'clipping','off'); axis equal
+set(gca,'clipping','off'); axis equal vis3d
 xlabel('x'); ylabel('y'); zlabel('z');

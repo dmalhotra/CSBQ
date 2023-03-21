@@ -7,7 +7,7 @@
 clear
 
 %ker = @(t,s) cos(mod(s-t,2*pi)/2);   % warm-up discont ker (half-cycle of cos)
-% (this just tested convernence of point spectrum, weak decaying eigvals...)
+% (this just tested convergence of point spectrum, weak decaying eigvals...)
 
 % toy kernel:
 ker = @(t,s) 0.5./sin(abs(s-t)/2);   % inv dist btw pts s,t on unit circ

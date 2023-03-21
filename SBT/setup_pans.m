@@ -12,7 +12,7 @@ function pan = setup_pans(tpan,p)
 %
 % Without arguments, a self-test is done.
 
-% Barnett 12/23/21. 1/12/22 changed quad-wei to v.
+% Barnett 12/23/21. 1/12/22 changed quad-wei to v. 3/17/23 added ip{l,r} field
 if nargin==0, test_setup_pans; return; end
 
 [z w] = gauss(p);   % one std panel
@@ -22,6 +22,8 @@ for i=1:npan
   pan(i).v = pan(i).sc*w(:);       % pan is struct array. v is column
   pan(i).c = (tpan(i+1)+tpan(i))/2;       % center param of pan
   pan(i).t = pan(i).c + pan(i).sc*z(:);
+  pan(i).ipl = mod(i-2,npan)+1;    % indices of left and right nei pans in this list
+  pan(i).ipr = mod(i,npan)+1;
 end
 
 %%%%%%%

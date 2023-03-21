@@ -16,8 +16,8 @@ function A = nyst_diagdiscont_sca(pan,tpan,ker,o)
 %
 % Inputs:
 %  pan - a struct array (one struct per panel) with fields w (column vec of
-%        p weights), t (column vector of p nodes), c (center of panel), sc
-%        (half-size of panel). Order p is assumed same for all panels for now.
+%        p weights), t (column vector of p nodes).
+%        Order p is assumed same for all panels for now.
 %  tpan - list (npan+1 length) of panel breakpoints. The first must be 0
 %        and the last (npan+1)th must be the period L, which it sets, for now
 %        (simplifies wrapping).
@@ -100,7 +100,7 @@ u = sin(3*s.t+1.1); norm(A*u)        % test a null vector
 u = sin(7*s.t-1); norm(A*u)          % test more osc null vec
 
 disp('diag-discont kernel...')
-ker = @(t,s) cos(mod(s-t,2*pi)/2);   % discont kernel (half-cycle of cos)
+ker = @(t,s) cos(mod(s-t,2*pi)/2);   % some discont kernel (half-cycle of cos)
 A = nyst_diagdiscont_sca(pan,tpan,ker);
 u = 1+0*s.t; norm(A*u)               % test the null vector (too easy)
 u = exp(1i*s.t); norm(A*u-1i*8/3*u)  % test eigfunc, eigval = 8i/3, guessed
