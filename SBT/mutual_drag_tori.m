@@ -1,4 +1,4 @@
-function F1 = mutual_drag_tori(eps,delta)
+function F1 = mutual_drag_tori(eps,delta,xtwist,U2)
 % Testing breakdown of SBT (Nystrom solve) for mutual drag between two near tori
 %
 % Major radius R, minor radius eps (note eps is not the aspect ratio b/a).
@@ -8,24 +8,35 @@ function F1 = mutual_drag_tori(eps,delta)
 % Sign convention: Fj is the net force externally applied to body j, so the
 % mutual drag is <0.
 %
+% For use as a function:
+% F1 = mutual_drag_tori(eps,delta,xtwist,U2)
+%
+% without arguments, does basic self-test
+
 % Barnett 3/17/23
-%clear;
-verb = 0;
+%clear;   % kill since func
+verb = 0;    % adjust by hand to 0 for func use
 
 mu = 1;               % fluid viscosity (keep at 1 to get drag coeff)
 R = 1.0;              % circle (major) radius
 if nargin<1, eps = 1e-2; end           % fiber radius << R
 if nargin<2, delta = 10*eps;  end    % surface separation (centerline sep = delta+2eps)
-U1 = [0;0;0]; U2 = [0;0;1];     % imposed rigid vels of each torus
+U1 = [0;0;0];         % imposed no vel for 1st torus
+if nargin<4, U2 = [0;0;1]; end    % imposed rigid vels of 2nd torus
 c1 = zeros(3,1); c2 = [delta+2*(R+eps);0;0];    % centers of tori for delta sep
 [Z1,Zp1] = ellipse_map(R,R,eye(3),c1);     % torus 1, xy-plane
-[Z2,Zp2] = ellipse_map(R,R,eye(3),c2);
-fprintf('circle (major) radii R=%g, fiber radii eps=%g, surface min sep delta=%g...\n',R,eps,delta)
+if nargin<3, xtwist=0.0; end
+Q = [1 0 0; 0 cos(xtwist) -sin(xtwist); 0 sin(xtwist) cos(xtwist)];
+[Z2,Zp2] = ellipse_map(R,R,Q,c2);
+fprintf('R=%g, eps=%g, delta=%g, xtwist=%g, U2=(%g,%g,%g)...\n',R,eps,delta,xtwist,U2(1),U2(2),U2(3))
 
 p = 12;                       % order
 %npans = 50:20:70; %60:20:80;   % npans=200 takes >10sec, gets <1e-9 at delta=1e-2 (panarclen=pi/100=pi.delta). Ie npans>2.0/(delta+2eps)
-npans = max(50, min(400, ceil(2.2/(delta+2*eps))));   % auto choose for 1e-9
+%npans = max(50, min(400, ceil(2.2/(delta+2*eps))));   % auto choose for 1e-9
+                                                      % failed for xtwist case
+npans = max(50, min(400, ceil(3.8/(delta+2*eps))));   % auto choose for 1e-9
 if npans <300, npans = [npans npans+20]; end    % conv check if not expensive
+fprintf('npans: '); disp(npans);
 
 for i=1:numel(npans)         % h-convergence study ..........
   npan = npans(i);
