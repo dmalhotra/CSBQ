@@ -39,7 +39,7 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
 
       x = (cos<Real>(s_*pi)) * scale;
       y = (sin<Real>(s_*pi)) * scale;
-      z = 0;//          (s_*pi)  * scale;
+      z =           (s_*pi)  * scale;
     };
 
     GenericGeom(elem_lst0, geom, panel_len, Vector<Long>(), comm, ChebOrder, FourierOrder);
