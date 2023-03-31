@@ -150,9 +150,10 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
         Ws[panel_idx*ChebOrder+i] = vec3_mag(dXc_) * ChebQuadWts[i];
         for (Long j = 0; j < FourierOrder; j++) {
           const Long node_idx = i * FourierOrder + j;
-          const auto& Xs = Vec3(dX_ds.begin() + node_idx * COORD_DIM);
-          const auto& Xt = Vec3(dX_dt.begin() + node_idx * COORD_DIM);
-          Wa[panel_idx * ChebOrder*FourierOrder + node_idx] = vec3_mag(cross_prod(Xs, Xt)) / vec3_mag(dXc_);
+          const auto Xs = Vec3(dX_ds.begin() + node_idx * COORD_DIM);
+          const auto Xt = Vec3(dX_dt.begin() + node_idx * COORD_DIM);
+          const Real PTR_weight = (2*pi/FourierOrder);
+          Wa[panel_idx * ChebOrder*FourierOrder + node_idx] = vec3_mag(cross_prod(Xs, Xt)) / vec3_mag(dXc_) * PTR_weight;
 
           Vec3 r_ = cross_prod(dXc_, Xt) / vec3_mag(dXc_);
           for (Long k = 0; k < COORD_DIM; k++) {
