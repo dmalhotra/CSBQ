@@ -2,6 +2,8 @@
 #include "sctl.hpp"
 using namespace sctl;
 
+const bool DL_fix = true;
+const bool sqrt_scaling = true;
 const int ChebOrder = 10; // do not change this
 const int FourierOrder = 16; // must be multiple of 4
 
@@ -19,70 +21,99 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
   const Real gmres_tol = 1e-13;
   const Long gmres_max_iter = 400;
   const Real pi = const_pi<Real>();
-  const Real scale = 1 / (sqrt<Real>(2.0)*pi);
-  Real s0 = 0, s1 = 1;
+  Real s0 = 0;//, s1 = 1;
 
   Vector<Real> panel_len; // define length of panels (in parameter s)
   SlenderElemList<Real> elem_lst0; // Initialize geometry from geom function
   if (ellipsoid) { // ellipsoidally tapered half-turn helix
-    const Long Npanels = 32;
-    panel_len.ReInit(Npanels);
-    panel_len = 1 / (Real)Npanels;
+    using ValueType = long double;
+    const ValueType pi = const_pi<ValueType>();
+    const ValueType scale = 1 / (sqrt<ValueType>(2.0)*pi);
+
+    Vector<ValueType> panel_len_;
+    if (1) { // dyadic panel refinement
+      const Integer MinDepth = 6;
+      const Integer MaxDepth = 9;
+      ValueType ds = pow<ValueType>(0.5,MaxDepth), ds_max = pow<ValueType>(0.5,MinDepth), sum = 0;
+      panel_len_.PushBack(ds); sum += ds;
+      while (sum < 1/(ValueType)2) {
+        panel_len_.PushBack(ds); sum += ds;
+        if (ds<ds_max) ds*=(ValueType)2;
+      }
+      SCTL_ASSERT(sum == 1/(ValueType)2);
+
+      const Long N0 = panel_len_.Dim();
+      for (Long i = 0; i < N0; i++) {
+        panel_len_.PushBack(panel_len_[N0-1-i]);
+      }
+    }
 
     // Geometry function for half-turn helix (ellipsoidally tapered)
-    auto geom = [&r0,&scale,&pi](Real& x, Real& y, Real& z, Real& r, const Real s) {
+    auto geom = [&r0,&scale,&pi](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType s) {
       // input: s \in [0,1] is the parameterization along the centerline.
       // output: x, y, z, r : the position of the centerline and the cross-sectional radius.
 
-      Real s_ = (1 - cos<Real>(s*pi)) / 2;
-      r = r0 * sin<Real>(s*pi);
+      ValueType s_ = (1 - cos<ValueType>(s*pi)) / 2;
+      r = r0 * sin<ValueType>(s*pi);
 
-      x = (cos<Real>(s_*pi)) * scale;
-      y = (sin<Real>(s_*pi)) * scale;
-      z =           (s_*pi)  * scale;
+      x = (cos<ValueType>(s_*pi)) * scale;
+      y = (sin<ValueType>(s_*pi)) * scale;
+      z =                (s_*pi)  * scale;
     };
 
-    GenericGeom(elem_lst0, geom, panel_len, Vector<Long>(), comm, ChebOrder, FourierOrder);
+    panel_len.ReInit(0);
+    for (const auto x : panel_len_) panel_len.PushBack((Real)x);
+    GenericGeom(elem_lst0, geom, panel_len_, Vector<Long>(), comm, ChebOrder, FourierOrder);
   } else {
-    const Real end_len = r0/scale/sqrt<Real>(8.0); // length of end-caps (in parameter space)
-    s0 = 0 - end_len; // range of s
-    s1 = 1 + end_len;
+    using ValueType = long double;
+    const ValueType pi = const_pi<ValueType>();
+    const ValueType scale = 1 / (sqrt<ValueType>(2.0)*pi);
+
+    const ValueType end_len = r0/scale/sqrt<ValueType>(8.0); // length of end-caps (in parameter space)
+    s0 = 0 - (Real)end_len;
+    //s1 = 1 + (Real)end_len;
+    const ValueType s0 = (ValueType)0 - end_len; // range of s
+    const ValueType s1 = (ValueType)1 + end_len;
 
     // Geometry function for half-turn helix (with hemispherical end-caps)
-    auto geom = [&r0,&s0,&s1,&scale,&end_len,&pi](Real& x, Real& y, Real& z, Real& r, const Real s) {
+    auto geom = [&r0,&s0,&s1,&scale,&end_len,&pi](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType s) {
       // input: s \in [0,1] is the parameterization along the centerline.
       // output: x, y, z, r : the position of the centerline and the cross-sectional radius.
 
-      Real s_ = s0 + s;
+      ValueType s_ = s0 + s;
       if (s_ < s0 + end_len) { // round the end at s=0
-        r = sin<Real>((s_-s0)/end_len*pi/2)*r0;
-        s_ = s0 + end_len - cos<Real>((s_-s0)/end_len*pi/2) * end_len*2/pi;
+        r = sin<ValueType>((s_-s0)/end_len*pi/2)*r0;
+        s_ = s0 + end_len - cos<ValueType>((s_-s0)/end_len*pi/2) * end_len*2/pi;
       } else if (s_ > s1 - end_len) { // round the end at s=1
-        r = sin<Real>((s1-s_)/end_len*pi/2)*r0;
-        s_ = s1 - end_len + cos<Real>((s1-s_)/end_len*pi/2) * end_len*2/pi;
+        r = sin<ValueType>((s1-s_)/end_len*pi/2)*r0;
+        s_ = s1 - end_len + cos<ValueType>((s1-s_)/end_len*pi/2) * end_len*2/pi;
       } else {
         r = r0;
       }
 
-      x = (cos<Real>(s_*pi)) * scale;
-      y = (sin<Real>(s_*pi)) * scale;
-      z =           (s_*pi)  * scale;
+      x = (cos<ValueType>(s_*pi)) * scale;
+      y = (sin<ValueType>(s_*pi)) * scale;
+      z =                (s_*pi)  * scale;
     };
 
+    Vector<ValueType> panel_len_;
     { // dyadically refine panels at the ends
-      const Real L = (s1-s0)-2*end_len;
+      const ValueType L = (s1-s0)-2*end_len;
       const Long min_depth = 4;
       const Long max_depth = std::max<Long>(min_depth, (Long)(log(end_len/L)/log(0.5))+3);
 
-      for (Long i = 0; i < 4; i++) panel_len.PushBack(end_len/4);
-      panel_len.PushBack(pow<Real>(0.5,max_depth)*L);
-      for (Long d = max_depth; d >= min_depth+1; d--) panel_len.PushBack(pow<Real>(0.5,d)*L);
-      for (Long i = 0; i < ((1<<min_depth)-2); i++) panel_len.PushBack(pow<Real>(0.5,min_depth)*L);
-      for (Long d = min_depth+1; d <= max_depth; d++) panel_len.PushBack(pow<Real>(0.5,d)*L);
-      panel_len.PushBack(pow<Real>(0.5,max_depth)*L);
-      for (Long i = 0; i < 4; i++) panel_len.PushBack(end_len/4);
+      for (Long i = 0; i < 4; i++) panel_len_.PushBack(end_len/4);
+      panel_len_.PushBack(pow<ValueType>(0.5,max_depth)*L);
+      for (Long d = max_depth; d >= min_depth+1; d--) panel_len_.PushBack(pow<ValueType>(0.5,d)*L);
+      for (Long i = 0; i < ((1<<min_depth)-2); i++) panel_len_.PushBack(pow<ValueType>(0.5,min_depth)*L);
+      for (Long d = min_depth+1; d <= max_depth; d++) panel_len_.PushBack(pow<ValueType>(0.5,d)*L);
+      panel_len_.PushBack(pow<ValueType>(0.5,max_depth)*L);
+      for (Long i = 0; i < 4; i++) panel_len_.PushBack(end_len/4);
     }
-    GenericGeom(elem_lst0, geom, panel_len, Vector<Long>(), comm, ChebOrder, FourierOrder);
+
+    panel_len.ReInit(0);
+    for (const auto x : panel_len_) panel_len.PushBack((Real)x);
+    GenericGeom<ValueType>(elem_lst0, geom, panel_len_, Vector<Long>(), comm, ChebOrder, FourierOrder);
   }
   const Long Npanels = panel_len.Dim();
 
@@ -104,6 +135,7 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
     return sqrt<Real>(dot_prod(u,u));
   };
 
+  Vector<Real> Wa_surf(Npanels * ChebOrder * FourierOrder); // surface area element
   Vector<Real> Ws(Npanels * ChebOrder); // weights to integrate along the centerline
   Vector<Real> Xc(Npanels * ChebOrder * COORD_DIM); // coordinates of centerline
   Vector<Real> dXc(Npanels * ChebOrder * COORD_DIM); // tangent vector to the centerline
@@ -121,8 +153,8 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
     }
 
     for (Long panel_idx = 0; panel_idx < Npanels; panel_idx++) { // loop over panels
-      Vector<Real> X, dX_ds, dX_dt;
-      elem_lst0.SlenderElemList<Real>::GetGeom(&X, nullptr, nullptr, &dX_ds, &dX_dt, PanelNodes, sin_theta, cos_theta, panel_idx);
+      Vector<Real> X, dX_ds, dX_dt, Wa_surf_;
+      elem_lst0.SlenderElemList<Real>::GetGeom(&X, nullptr, &Wa_surf_, &dX_ds, &dX_dt, PanelNodes, sin_theta, cos_theta, panel_idx);
 
       Vector<Real> U_(ChebOrder * FourierOrder * COORD_DIM, U.begin() + panel_idx * ChebOrder * FourierOrder * COORD_DIM, false); // sub-array of U
       U_ = dX_dt / (r0*r0); // the tangential derivative of the surface in angular direction scaled by (1/r0^2)
@@ -150,14 +182,18 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
         Ws[panel_idx*ChebOrder+i] = vec3_mag(dXc_) * ChebQuadWts[i];
         for (Long j = 0; j < FourierOrder; j++) {
           const Long node_idx = i * FourierOrder + j;
-          const auto Xs = Vec3(dX_ds.begin() + node_idx * COORD_DIM);
+          const Long idx = panel_idx * ChebOrder*FourierOrder + node_idx;
+
+          //const auto Xs = Vec3(dX_ds.begin() + node_idx * COORD_DIM);
           const auto Xt = Vec3(dX_dt.begin() + node_idx * COORD_DIM);
           const Real PTR_weight = (2*pi/FourierOrder);
-          Wa[panel_idx * ChebOrder*FourierOrder + node_idx] = vec3_mag(cross_prod(Xs, Xt)) / vec3_mag(dXc_) * PTR_weight;
+          Wa_surf[idx] = Wa_surf_[node_idx];
+          Wa[idx] = Wa_surf_[node_idx] / vec3_mag(dXc_) * PTR_weight;
+          //Wa[idx] = vec3_mag(cross_prod(Xs, Xt)) / vec3_mag(dXc_) * PTR_weight;
 
           Vec3 r_ = cross_prod(dXc_, Xt) / vec3_mag(dXc_);
           for (Long k = 0; k < COORD_DIM; k++) {
-            r[(panel_idx * ChebOrder*FourierOrder + node_idx) * COORD_DIM + k] = r_(k,0);
+            r[idx * COORD_DIM + k] = r_(k,0);
           }
         }
       }
@@ -173,14 +209,14 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
   BIOp_StokesFxU.AddElemList(elem_lst0);
   BIOp_StokesFxU.SetAccuracy(quad_tol);
 
-  if (0) { // print quadrature error
-    const Stokes3D_DxU ker_DxU;
-    const Stokes3D_FSxU ker_FSxU;
-    BoundaryIntegralOp<Real,Stokes3D_DxU> BIOp_StokesDxU(ker_DxU, false, comm); // boundary integral operator
-    BIOp_StokesDxU.SetFMMKer(ker_DxU, ker_DxU, ker_DxU, ker_FSxU, ker_FSxU, ker_FSxU, ker_FxU, ker_FxU);
-    BIOp_StokesDxU.AddElemList(elem_lst0);
-    BIOp_StokesDxU.SetAccuracy(quad_tol);
+  const Stokes3D_DxU ker_DxU; // double-layer kernel
+  const Stokes3D_FSxU ker_FSxU; // stokeslet + source kernel
+  BoundaryIntegralOp<Real,Stokes3D_DxU> BIOp_StokesDxU(ker_DxU, false, comm); // boundary integral operator (double-layer)
+  BIOp_StokesDxU.SetFMMKer(ker_DxU, ker_DxU, ker_DxU, ker_FSxU, ker_FSxU, ker_FSxU, ker_FxU, ker_FxU);
+  BIOp_StokesDxU.AddElemList(elem_lst0);
+  BIOp_StokesDxU.SetAccuracy(quad_tol);
 
+  if (1) { // print quadrature error
     long N = BIOp_StokesDxU.Dim(0);
     Vector<Real> U, F(N); F = 1;
     BIOp_StokesDxU.ComputePotential(U, F);
@@ -193,13 +229,33 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
     std::cout<<"Double-layer quadrature error = "<<err<<'\n';
   }
 
-  Vector<Real> F;
+  Vector<Real> sqrt_Wa, invsqrt_Wa; // weights for sqrt scaling
+  if (sqrt_scaling) {
+    for (const auto& x : Wa_surf) sqrt_Wa.PushBack(sqrt<Real>(x));
+    for (const auto& x : Wa_surf) invsqrt_Wa.PushBack(1/sqrt<Real>(x));
+  }
+
+  Vector<Real> F, DU;
   ParallelSolver<Real> solver(comm); // linear solver
-  auto BIOp = [&BIOp_StokesFxU](Vector<Real>* Ax, const Vector<Real>& x) {
-    Ax->SetZero();
-    BIOp_StokesFxU.ComputePotential(*Ax, x);
+  auto scaling = [](const Vector<Real>& V_, const Vector<Real>& scal) {
+    Vector<Real> V = V_;
+    const Long N = scal.Dim();
+    const Long dof = V.Dim()/std::max<Long>(N,1);
+    for (Long i = 0; i < N; i++) {
+      for (Long k = 0; k < dof; k++) {
+        V[i*dof+k] *= scal[i];
+      }
+    }
+    return V;
   };
-  solver(&F, BIOp, U, gmres_tol, gmres_max_iter); // solve for surface force F
+  auto BIOp = [&BIOp_StokesFxU, &scaling, &sqrt_Wa, &invsqrt_Wa](Vector<Real>* Ax, const Vector<Real>& x) {
+    Ax->SetZero();
+    BIOp_StokesFxU.ComputePotential(*Ax, scaling(x, invsqrt_Wa));
+    *Ax = scaling(*Ax, sqrt_Wa);
+  };
+  BIOp_StokesDxU.ComputePotential(DU, U); DU += 0.5* U;
+  solver(&F, BIOp, scaling(U-DU*(DL_fix?1:0), sqrt_Wa), gmres_tol, gmres_max_iter); // solve for surface force F
+  F = scaling(F, invsqrt_Wa);
 
   // write visualization to VTK file
   elem_lst0.WriteVTK("vis/F-helix", F, comm);
@@ -235,7 +291,49 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
   // print result
   printf("                   s                    X                    Y                    Z                   Fx                   Fy                   Fz      parallel-torque                   Ws\n");
   for (Long i = 0; i < s_vec.Dim(); i++) {
-    printf("%20.12e %20.12e %20.12e %20.12e %20.12e %20.12e %20.12e %20.12e %20.12e\n", s_vec[i], Xc[i*COORD_DIM+0], Xc[i*COORD_DIM+1], Xc[i*COORD_DIM+2], F0[i*COORD_DIM+0], F0[i*COORD_DIM+1], F0[i*COORD_DIM+2], T0[i], Ws[i]);
+    printf("%20.12e %20.12e %20.12e %20.12e %20.12e %20.12e %20.12e %20.12e %20.12e\n", (double)s_vec[i], (double)Xc[i*COORD_DIM+0], (double)Xc[i*COORD_DIM+1], (double)Xc[i*COORD_DIM+2], (double)F0[i*COORD_DIM+0], (double)F0[i*COORD_DIM+1], (double)F0[i*COORD_DIM+2], (double)T0[i], (double)Ws[i]);
+  }
+
+  auto L2_norm = [&scaling](const Vector<Real>& V, const Vector<Real>& W) {
+    const Long N = W.Dim();
+    const Long dof = V.Dim()/W.Dim();
+    Real sum = 0;
+    for (Long i = 0; i < N; i++) {
+      for (Long k = 0; k < dof; k++) {
+        sum += V[i*dof+k] * V[i*dof+k] * W[i];
+      }
+    }
+    return sqrt<Real>(sum);
+  };
+  auto Linf_norm = [&scaling](const Vector<Real>& V) {
+    Real max_val = 0;
+    for (const auto& x : V) max_val = std::max<Real>(max_val, fabs(x));
+    return max_val;
+  };
+  if (1) { // Check Green's identity on the surface
+    BIOp_StokesFxU.SetTargetCoord(Vector<Real>());
+    BIOp_StokesDxU.SetTargetCoord(Vector<Real>());
+
+    Vector<Real> DU, SF;
+    BIOp_StokesFxU.ComputePotential(SF, F);
+    BIOp_StokesDxU.ComputePotential(DU, U); DU -= 0.5*U;
+    Vector<Real> E = SF + DU;
+
+    std::cout<<"Green's identity L2-error (on-surface) = "<<L2_norm(E,Wa_surf)/L2_norm(U,Wa_surf)<<" (same as GMRES residual)\n";
+    std::cout<<"Green's identity Linf-error (on-surface) = "<<Linf_norm(E)/Linf_norm(U)<<'\n';
+    elem_lst0.WriteVTK("vis/EE-helix", E/Linf_norm(U), comm);
+  }
+  if (1) { // Check Green's identity on the centerline
+    BIOp_StokesFxU.SetTargetCoord(Xc);
+    BIOp_StokesDxU.SetTargetCoord(Xc);
+
+    Vector<Real> DU, SF;
+    BIOp_StokesFxU.ComputePotential(SF, F);
+    BIOp_StokesDxU.ComputePotential(DU, U);
+    Vector<Real> E = SF + DU;
+
+    std::cout<<"Green's identity L2-error (off-surface) = "<<L2_norm(E,Ws)/L2_norm(U,Ws)<<'\n';
+    std::cout<<"Green's identity Linf-error (off-surface) = "<<Linf_norm(E)/Linf_norm(U)<<'\n';
   }
 }
 
