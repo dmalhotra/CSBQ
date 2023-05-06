@@ -8,7 +8,7 @@ template <class Real> void test(const Comm& comm, const std::string fname, const
 
   SlenderElemList<Real> elem_lst0;
   if (!fname.empty()) {
-    elem_lst0.Read(fname, comm);
+    elem_lst0.template Read<QuadReal>(fname, comm);
   }
   if (!elem_lst0.Size()) { // use default geom
     const Long Npanel = 40;
