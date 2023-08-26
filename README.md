@@ -1,7 +1,7 @@
 # Convergent slender-body quadrature (CSBQ) --- research implementation
 
-authors: _Dhairya Malhotra_, with slender-body theory comparisons by
-_Alex Barnett_
+authors: **Dhairya Malhotra**, with slender-body theory comparisons by
+**Alex Barnett**
 
 This is a high-performance parallel C++ implementation of a high-order
 Nystrom quadrature for the boundary integral equations arising
@@ -12,6 +12,9 @@ Its cost is independent of the slenderness parameter.
 This repository also contains MATLAB codes implementing the classical
 slender-body theory asymptotic approximation,
 and solving its linear inverse problem as needed for a mobility solve.
+
+It is research software used as part of investigations of PDE
+solvers at the Center for Computational Mathematics at the Flatiron Institute.
 
 Use at your own risk.
 
