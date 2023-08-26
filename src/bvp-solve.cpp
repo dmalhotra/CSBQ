@@ -85,10 +85,10 @@ struct Laplace3D_FDxU100 : public GenericKernel<Laplace3D_FDxU100_> {};
 struct Stokes3D_FDxU100 : public GenericKernel<Stokes3D_FDxU100_> {};
 struct Stokes3D_FDxU10 : public GenericKernel<Stokes3D_FDxU10_> {};
 
-template <class Real, class KerSL, class KerDL, class KerSLDL> void bvp_solve_conv(const std::string& fname, const std::string& ker_name, const Real tol, const Real gmres_tol, const Real SLScaling, const Comm& comm = Comm::World()) {
+template <class Real, class KerSL, class KerDL, class KerSLDL, class KerM2M=KerSL, class KerM2L=KerSL, class KerM2T=KerSL, class KerL2L=KerSL, class KerL2T=KerSL> void bvp_solve_conv(const std::string& fname, const std::string& ker_name, const Real tol, const Real gmres_tol, const Real SLScaling, const Comm& comm = Comm::World()) {
   SlenderElemList<Real> elem_lst0;
   SCTL_ASSERT(!fname.empty());
-  elem_lst0.Read(fname, comm);
+  elem_lst0.template Read<RefValueType>(fname, comm);
 
   Vector<Real> Xt;
   CubeVolumeVis<Real> cube_vol(100, 3.0);
@@ -117,7 +117,7 @@ template <class Real, class KerSL, class KerDL, class KerSLDL> void bvp_solve_co
 
       Vector<RefValueType> Xtrg;
       for (const auto& a : Xt) Xtrg.PushBack((RefValueType)a);
-      Vector<RefValueType> U0 = bvp_solve<RefValueType, KerSL, KerDL>(elem_lst, (RefValueType)1e-17, (RefValueType)1e-15, (RefValueType)SLScaling, Vector<RefValueType>(), Xtrg, comm);
+      Vector<RefValueType> U0 = bvp_solve<RefValueType, KerSL, KerDL, KerM2M, KerM2L, KerM2T, KerL2L, KerL2T>(elem_lst, (RefValueType)1e-17, (RefValueType)1e-15, (RefValueType)SLScaling, Vector<RefValueType>(), Xtrg, comm);
       comm.PartitionN(U0, (comm.Rank()?0:1));
 
       Uref0.ReInit(0);
@@ -243,15 +243,15 @@ int main(int argc, char** argv) {
       if (fname.empty()) { // Initialize elem_lst0
         GeomEllipse(elem_lst0, Vector<Real>(), Vector<Long>(), comm, (Real)1, (Real)1, thickness, 10);
       } else {
-        elem_lst0.Read(fname, comm);
+        elem_lst0.template Read<RefValueType>(fname, comm);
       }
       if ((!strcmp(ker.c_str(), "Stokes"))) {
         if (!comm.Rank()) std::cout<<"\n\n## Solving : (1/2 + D + S * SLscaling) sigma = V0    (Stokes exterior Dirichlet BVP)\n";
-        Vector<Real> U = bvp_solve<Real, Stokes3D_FxU, Stokes3D_DxU>(elem_lst0, tol, gmres_tol, SLScaling, Vector<Real>(), cube_vol.GetCoord(), comm);
+        Vector<Real> U = bvp_solve<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>(elem_lst0, tol, gmres_tol, SLScaling, Vector<Real>(), cube_vol.GetCoord(), comm);
         cube_vol.WriteVTK("vis/BVP-cube", U, comm);
       } else if ((!strcmp(ker.c_str(), "Laplace"))) {
         if (!comm.Rank()) std::cout<<"\n\n## Solving : (1/2 + D + S * scaling) sigma = V0    (Laplace exterior Dirichlet BVP)\n";
-        Vector<Real> U = bvp_solve<Real, Laplace3D_FxU, Laplace3D_DxU>(elem_lst0, tol, gmres_tol, SLScaling, Vector<Real>(), cube_vol.GetCoord(), comm);
+        Vector<Real> U = bvp_solve<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxU, Laplace3D_FxU, Laplace3D_FxU, Laplace3D_FxU, Laplace3D_FxU>(elem_lst0, tol, gmres_tol, SLScaling, Vector<Real>(), cube_vol.GetCoord(), comm);
         cube_vol.WriteVTK("vis/BVP-cube", U, comm);
       } else {
         if (!comm.Rank()) std::cout<<"Unknown kernel "<<ker<<'\n';
