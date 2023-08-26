@@ -2,9 +2,9 @@
 % tori.
 % Barnett 3/22/23
 
-close
+clear
 
-if 0   % ------------------------
+if 0   % ------------------------ VERSION 1
 f=fopen('output/mutual_drag_tori_Dhairya_err.dat');   % paste from email
 a = textscan(f,'%f %f %f %f %f','commentstyle','#');
 eps=a{1}; delta=a{2};
@@ -35,6 +35,7 @@ title('error in SBT F1_z (vs BIE ground truth)');
 print -dpng figs/mutual_tori_err_draft.png
 end  % ---------------------------
 
+if 0    % ------------------- VERSION 2
 f=fopen('output/mutual_drag_tori_twisted_grid.dat');  % no errs
 a = textscan(f,'%f %f %f %f %f','commentstyle','#');
 eps=a{1}; delta=a{2};
@@ -53,3 +54,45 @@ plot(le,2+le,'k--'); text(-2,0,"\delta=100\epsilon");
 axis(v);
 title('mutual drag twisted tori (-F1_z), SBT, grid samples');
 print -dpng figs/mutual_tori_twisted_grid_F1z_SBT.png
+end
+
+% ----------------------- VERSION 3
+f=fopen('output/mutual_drag_tori_twisted_grid_err.dat');  % Dhairya errs vs BIE
+a = textscan(f,'%f %f %f %f %f %f %f %f %f','commentstyle','#');
+eps=a{1}; delta=a{2};
+F1x=a{3}; F1y=a{4}; F1z=a{5};     % cmpts of F1 vector mutual drag, SBT
+B1x=a{6}; B1y=a{7}; B1z=a{8};     % cmpts of F1 vector mutual drag, BIE
+fclose(f);
+FSBT = [F1x,F1y,F1z]; FBIE = [B1x,B1y,B1z];
+Fmag = sqrt(sum(FBIE.^2,2));       % accurate (BIE) ||F||
+Frelerr = sqrt(sum((FBIE-FSBT).^2,2)) ./ Fmag;  % rel errs SBT vs BIE
+epss = unique(eps);
+dels = unique(delta);
+ne = numel(epss); nd = numel(dels);
+le = log10(epss);
+figure; subplot(1,2,1);
+imagesc(le,log10(dels),reshape(Fmag,[nd ne]));
+caxis([0 25]); colorbar;
+xlabel('log_{10}\epsilon'); ylabel('log_{10}\delta'); axis xy tight;
+v=axis; hold on;
+plot(le,le,'k--'); text(-2,-2,"\delta=\epsilon");
+plot(le,1+le,'k--'); text(-2,-1,"\delta=10\epsilon");
+plot(le,2+le,'k--'); text(-2,0,"\delta=100\epsilon");
+axis(v);
+title('mutual drag vector magnitude ||F||, twisted tori');
+subplot(1,2,2);
+%[C,h] = contourf(le,log10(dels),reshape(log10(Frelerr),[nd ne]), [-7:-3, -2:0.5:0]);
+%clabel(C,h); caxis([-7 -0.24]);
+imagesc(le,log10(dels),reshape(Frelerr,[nd ne])); set(gca,'colorscale','log'); caxis([1e-7 0.6]); % fails for contourf
+colorbar;
+xlabel('log_{10}\epsilon'); ylabel('log_{10}\delta'); axis xy tight;
+hold on;
+plot(le,le,'k--'); text(-2,-2,"\delta=\epsilon");
+plot(le,1+le,'k--'); text(-2,-1,"\delta=10\epsilon");
+plot(le,2+le,'k--'); text(-2,0,"\delta=100\epsilon");
+axis(v);
+title('mutual drag vector error ||F_{SBT}-F||/||F|| twisted tori');
+%title('mutual drag vector error log_{10} ||F_{SBT}-F||/||F|| twisted tori');
+set(gcf,'paperposition',[0 0 13 5])
+%print -dpng figs/mutual_tori_twisted_grid_err.png
+print -dpng figs/mutual_tori_twisted_grid_err2.png
