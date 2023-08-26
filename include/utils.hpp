@@ -9,7 +9,7 @@ namespace sctl {
 template <class Real, class Kernel> void double_layer_test(const SlenderElemList<Real>& elem_lst0, const Comm& comm, Real tol) { // Double-layer identity test
   const Long pid = comm.Rank();
 
-  Kernel ker_fn;
+  const Kernel ker_fn;
   BoundaryIntegralOp<Real,Kernel> BIOp(ker_fn, false, comm);
   BIOp.AddElemList(elem_lst0);
   BIOp.SetAccuracy(tol);
@@ -44,9 +44,9 @@ template <class Real, class KerSL, class KerDL, class KerGrad> void test_greens_
   static constexpr Integer COORD_DIM = 3;
   const Long pid = comm.Rank();
 
-  KerSL kernel_sl;
-  KerDL kernel_dl;
-  KerGrad kernel_grad;
+  const KerSL kernel_sl;
+  const KerDL kernel_dl;
+  const KerGrad kernel_grad;
   BoundaryIntegralOp<Real,KerSL> BIOpSL(kernel_sl, false, comm);
   BoundaryIntegralOp<Real,KerDL> BIOpDL(kernel_dl, false, comm);
   BIOpSL.AddElemList(elem_lst0);
@@ -114,11 +114,20 @@ template <class Real, class KerSL, class KerDL, class KerGrad> void test_greens_
  * Solve exterior Dirichlet BVP: (1/2 + D + S * SLScaling) sigma = V0
  * Solution at off-surface points Xt is returned.
  */
-template <class Real, class KerSL, class KerDL> Vector<Real> bvp_solve(const SlenderElemList<Real>& elem_lst0, const Real tol, const Real gmres_tol, const Real SLScaling = 1.0, Vector<Real> V0 = Vector<Real>(), const Vector<Real> Xt = Vector<Real>(), const Comm& comm = Comm::World(), Vector<Real>* sigma_ = nullptr) {
-  KerSL ker_sl;
-  KerDL ker_dl;
+template <class Real, class KerSL, class KerDL, class KerM2M, class KerM2L, class KerM2T, class KerL2L, class KerL2T> Vector<Real> bvp_solve(const SlenderElemList<Real>& elem_lst0, const Real tol, const Real gmres_tol, const Real SLScaling = 1.0, Vector<Real> V0 = Vector<Real>(), const Vector<Real> Xt = Vector<Real>(), const Comm& comm = Comm::World(), Vector<Real>* sigma_ = nullptr) {
+  const KerSL ker_sl;
+  const KerDL ker_dl;
+  const KerM2M ker_m2m;
+  const KerM2L ker_m2l;
+  const KerM2T ker_m2t;
+  const KerL2L ker_l2l;
+  const KerL2T ker_l2t;
   BoundaryIntegralOp<Real,KerSL> SLOp(ker_sl, false, comm);
   BoundaryIntegralOp<Real,KerDL> DLOp(ker_dl, false, comm);
+  #ifdef SCTL_HAVE_PVFMM
+  SLOp.SetFMMKer(ker_sl, ker_sl, ker_sl, ker_m2m, ker_m2l, ker_m2t, ker_l2l, ker_l2t);
+  DLOp.SetFMMKer(ker_dl, ker_dl, ker_dl, ker_m2m, ker_m2l, ker_m2t, ker_l2l, ker_l2t);
+  #endif
   SLOp.AddElemList(elem_lst0);
   DLOp.AddElemList(elem_lst0);
   SLOp.SetAccuracy(tol);
@@ -151,6 +160,11 @@ template <class Real, class KerSL, class KerDL> Vector<Real> bvp_solve(const Sle
   Profile::Tic("Solve", &comm, true);
   ParallelSolver<Real> solver(comm);
   solver(&sigma, BIOp, V0, gmres_tol, 200);
+  if (0) { // Write solution to file
+    auto sigma_ = sigma;
+    comm.PartitionN(sigma_, (comm.Rank()?0:1));
+    if (!comm.Rank()) sigma_.Write((std::string("ref/sigma")+KerSL::Name()).c_str());
+  }
   Profile::Toc();
 
   if (sigma_) (*sigma_) = sigma;
@@ -173,7 +187,7 @@ template <class Real, class KerSL, class KerDL> Vector<Real> bvp_solve(const Sle
  * Solution at off-surface points Xt is returned.
  */
 template <class Real, class Ker> Vector<Real> bvp_solve_combined(const SlenderElemList<Real>& elem_lst0, const Real tol, const Real gmres_tol, Vector<Real> V0 = Vector<Real>(), const Vector<Real> Xt = Vector<Real>(), const Comm& comm = Comm::World(), Vector<Real>* sigma_ = nullptr) { // Solve exterior Dirichlet BVP: (1/2 + D + S * SLScaling) sigma = V0
-  Ker ker;
+  const Ker ker;
   BoundaryIntegralOp<Real,Ker> KerOp(ker, false, comm);
   KerOp.AddElemList(elem_lst0);
   KerOp.SetAccuracy(tol);
@@ -228,12 +242,12 @@ template <class Real, class Ker> Vector<Real> bvp_solve_combined(const SlenderEl
  * Build geometry from a given geometry function:
  * geom_fn(Real& x, Real& y, Real& z, Real& r, const Real s)
  */
-template <class Real, class GeomFn> void GenericGeom(SlenderElemList<Real>& elem_lst0, const GeomFn& geom_fn, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Long ChebOrder = 10, const Long DefaultFourierOrder = 14, const Long DefaultNpanel = 16, const Real s_len = (Real)1) {
+template <class ValueType, class Real, class GeomFn> void GenericGeom(SlenderElemList<Real>& elem_lst0, const GeomFn& geom_fn, Vector<ValueType> panel_len = Vector<ValueType>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Long ChebOrder = 10, const Long DefaultFourierOrder = 14, const Long DefaultNpanel = 16, const ValueType s_len = (ValueType)1) {
   int Npanel = panel_len.Dim();
   if (!Npanel) { // use DefaultNpanel of equal length
     panel_len.ReInit(DefaultNpanel);
-    panel_len = s_len/(Real)panel_len.Dim();
-    GenericGeom<Real,GeomFn>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, DefaultFourierOrder, DefaultNpanel, s_len);
+    panel_len = s_len/(ValueType)panel_len.Dim();
+    GenericGeom<ValueType,Real,GeomFn>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, DefaultFourierOrder, DefaultNpanel, s_len);
     return;
   }
   if (FourierOrder.Dim() != Npanel) { // use DefaultFourierOrder
@@ -247,15 +261,15 @@ template <class Real, class GeomFn> void GenericGeom(SlenderElemList<Real>& elem
   const Long k1 = Npanel*(pid+1)/Np;
 
   { // Set elem_lst0
-    Vector<Real> panel_dsp(Npanel); panel_dsp = 0;
+    Vector<ValueType> panel_dsp(Npanel); panel_dsp = 0;
     omp_par::scan(panel_len.begin(), panel_dsp.begin(), Npanel);
 
-    Vector<Real> coord, radius;
+    Vector<ValueType> coord, radius;
     Vector<Long> cheb_order, fourier_order;
     for (Long k = k0; k < k1; k++) { // Init elem_lst0
-      const auto& nds = SlenderElemList<Real>::CenterlineNodes(ChebOrder);
+      const auto& nds = SlenderElemList<ValueType>::CenterlineNodes(ChebOrder);
       for (Long i = 0; i < nds.Dim(); i++) {
-        Real x, y, z, r;
+        ValueType x, y, z, r;
         geom_fn(x, y, z, r, panel_dsp[k]+nds[i]*panel_len[k]);
         radius.PushBack(r);
         coord.PushBack(x);
@@ -265,89 +279,146 @@ template <class Real, class GeomFn> void GenericGeom(SlenderElemList<Real>& elem
       cheb_order.PushBack(ChebOrder);
       fourier_order.PushBack(FourierOrder[k]);
     }
-    elem_lst0.Init(cheb_order, fourier_order, coord, radius);
+    elem_lst0.template Init<ValueType>(cheb_order, fourier_order, coord, radius);
   }
+}
+
+template <class ValueType, class Real, class GeomFn> void GenericGeomAdap(SlenderElemList<Real>& elem_lst0, const GeomFn& geom_fn, ValueType tol, const Comm& comm = Comm::Self(), const Long ChebOrder = 10, const Long DefaultFourierOrder = 14, const ValueType s_len = (ValueType)1) {
+  const auto& nds1 = SlenderElemList<ValueType>::CenterlineNodes(ChebOrder);
+  const auto& nds2 = SlenderElemList<ValueType>::CenterlineNodes(2*ChebOrder);
+
+  Matrix<ValueType> Minterp(nds1.Dim(), nds2.Dim());
+  Vector<ValueType> Minterp_(nds1.Dim()*nds2.Dim(), Minterp.begin(), false);
+  LagrangeInterp<ValueType>::Interpolate(Minterp_, nds1, nds2);
+
+  ValueType err = tol + 1;
+  Vector<ValueType> max_err(4), max_val(4);
+  Matrix<ValueType> X1(4,ChebOrder), X2(4,2*ChebOrder);
+  Vector<ValueType> panel_len(1); panel_len = s_len;
+  while(err > tol) {
+    err = 0;
+    ValueType panel_dsp = 0;
+    Vector<ValueType> panel_len_new;
+    for (Long k = 0; k < panel_len.Dim(); k++) {
+      max_err = 0;
+      max_val = 0;
+      for (Long i = 0; i < nds1.Dim(); i++) {
+        geom_fn(X1[0][i], X1[1][i], X1[2][i], X1[3][i], panel_dsp+nds1[i]*panel_len[k]);
+      }
+      Matrix<ValueType>::GEMM(X2, X1, Minterp);
+      for (Long i = 0; i < nds2.Dim(); i++) {
+        ValueType X_[4];
+        geom_fn(X_[0], X_[1], X_[2], X_[3], panel_dsp+nds2[i]*panel_len[k]);
+        for (Long j = 0; j < 4; j++) {
+          max_err[j] = std::max<ValueType>(max_err[j], fabs(X_[j]-X2[j][i]));
+          max_val[j] = std::max<ValueType>(max_val[j], fabs(X_[j]));
+        }
+      }
+
+      ValueType rel_err_ = 0;
+      for (Long j = 0; j < 4; j++) {
+        rel_err_ = std::max<ValueType>(rel_err_, max_err[j]/max_val[j]);
+      }
+      if (rel_err_ > tol) {
+        panel_len_new.PushBack(panel_len[k]/2);
+        panel_len_new.PushBack(panel_len[k]/2);
+      } else {
+        panel_len_new.PushBack(panel_len[k]);
+      }
+
+      panel_dsp += panel_len[k];
+      err = std::max<ValueType>(err, rel_err_);
+    }
+    std::cout<<"Npanels = "<<panel_len.Dim()<<"    Error = "<<err<<'\n';
+    panel_len.Swap(panel_len_new);
+  }
+
+  GenericGeom<ValueType>(elem_lst0, geom_fn, panel_len, Vector<Long>(), comm, ChebOrder, DefaultFourierOrder, 0, s_len);
 }
 
 /**
  * Build a torus geometry of radius 1 and given thickness.
  */
-template <class Real> void GeomEllipse(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Real Rmaj = 2, const Real Rmin = 0.5, const Real thickness = 0.001, const Long ChebOrder = 10) {
-  auto loop_geom = [Rmaj,Rmin,thickness](Real& x, Real& y, Real& z, Real& r, const Real s){
-    Real theta = 2*const_pi<Real>()*s;
-    x = Rmaj * cos<Real>(theta);
-    y = Rmin * sin<Real>(theta);
+template <class ValueType, class Real> void GeomEllipse(SlenderElemList<Real>& elem_lst0, Vector<ValueType> panel_len = Vector<ValueType>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const ValueType Rmaj = 2, const ValueType Rmin = 0.5, const ValueType thickness = 0.001, const Long ChebOrder = 10) {
+  auto loop_geom = [Rmaj,Rmin,thickness](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType s){
+    ValueType theta = 2*const_pi<ValueType>()*s;
+    x = Rmaj * cos<ValueType>(theta);
+    y = Rmin * sin<ValueType>(theta);
     z = 0;
     r = thickness/2;
   };
-  GenericGeom(elem_lst0, loop_geom, panel_len, FourierOrder, comm, ChebOrder, 14, 16, (Real)1);
+  GenericGeom<ValueType>(elem_lst0, loop_geom, panel_len, FourierOrder, comm, ChebOrder, 14, 16, (ValueType)1);
 }
 
 /**
  * Build geometry with two nearly touching tori with specified separation.
  */
-template <class Real> void GeomTouchingTori(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Real separation = 0.01, const Long ChebOrder = 10) {
-  auto geom_fn = [separation](Real& x, Real& y, Real& z, Real& r, const Real s){
-    auto loop_geom1 = [](Real& x, Real& y, Real& z, Real& r, const Real theta, Real x_shift){
-      x = 2*cos<Real>(theta)+x_shift;
-      y = 2*sin<Real>(theta);
+template <class ValueType, class Real> void GeomTouchingTori(SlenderElemList<Real>& elem_lst0, Vector<ValueType> panel_len = Vector<ValueType>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const ValueType separation = 0.01, const Long ChebOrder = 10) {
+  auto geom_fn = [separation](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType s){
+    auto loop_geom1 = [](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType theta, ValueType x_shift){
+      x = 2*cos<ValueType>(theta)+x_shift;
+      y = 2*sin<ValueType>(theta);
       z = 0;
       r = 0.125;
     };
-    auto loop_geom2 = [](Real& x, Real& y, Real& z, Real& r, const Real theta, Real x_shift){
-      x = 2*cos<Real>(theta)+x_shift;
+    auto loop_geom2 = [](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType theta, ValueType x_shift){
+      x = 2*cos<ValueType>(theta)+x_shift;
       y = 0;
-      z = 2*sin<Real>(theta);
+      z = 2*sin<ValueType>(theta);
       r = 0.125;
     };
-    if (s<1) loop_geom1(x, y, z, r, 2*const_pi<Real>()*s, -(1.875-separation/2));
-    else     loop_geom2(x, y, z, r, 2*const_pi<Real>()*s,  (1.875-separation/2));
+    if (s<1) loop_geom1(x, y, z, r, 2*const_pi<ValueType>()*s, -(1.875-separation/2));
+    else     loop_geom2(x, y, z, r, 2*const_pi<ValueType>()*s,  (1.875-separation/2));
   };
-  GenericGeom(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 32, (Real)2);
+  GenericGeom<ValueType>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 32, (ValueType)2);
 }
 
 /**
  * AB tangle geometry.
  */
-template <class Real> void GeomTangle(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Long ChebOrder = 10) {
+template <class ValueType, class Real> void GeomTangle(SlenderElemList<Real>& elem_lst0, Vector<ValueType> panel_len = Vector<ValueType>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Long ChebOrder = 10, ValueType tol = -1) {
   std::default_random_engine g;
   g.seed(0);         // fix random seed
   std::normal_distribution<double> randn(0.0,1.0);
 
   // build a tangle complicated curve as Fourier cos & sin series...
   int tangle_freq = 10;   // max Fourier freq, 20 in linequad paper w/ Ludvig
-  Vector<Real> co(6*tangle_freq);       // choose coeffs
+  Vector<ValueType> co(6*tangle_freq);       // choose coeffs
   for (int j=1; j<=tangle_freq; ++j) {
     // pick curve vector j'th Fourier coeffs (real: 3 for cos, 3 for sin)
-    Real ampl = 1.0 / (1.0 +(Real)j/3.0);  // 1/(5+|j|) in linequad
+    ValueType ampl = 1.0 / (1.0 +(ValueType)j/3.0);  // 1/(5+|j|) in linequad
     for (int i=0;i<6;++i)
       co[i + 6*(j-1)] = ampl*randn(g);
   }
 
-  auto geom_fn = [&tangle_freq,&co](Real& x, Real& y, Real& z, Real& r, const Real s) { // Initialize elem_lst0
+  auto geom_fn = [&tangle_freq,&co](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType s) { // Initialize elem_lst0
     x = 0; y = 0; z = 0;
-    const Real theta = 2*const_pi<Real>()*s;
+    const ValueType theta = 2*const_pi<ValueType>()*s;
     for (int j=1; j<=tangle_freq; ++j) {
       // add in j'th Fourier mode w/ these coeffs, for this panel...
-      Real cmode = cos<Real>(j*theta), smode = sin<Real>(j*theta);
+      ValueType cmode = cos<ValueType>(j*theta), smode = sin<ValueType>(j*theta);
       int o = 6*(j-1);     // offset index to j'th mode coeffs
       x += cmode*co[0+o] + smode*co[3+o];
       y += cmode*co[1+o] + smode*co[4+o];
       z += cmode*co[2+o] + smode*co[5+o];
     }
-    r = ((Real)0.005) * (((Real)2)+sin<Real>(theta+sqrt<Real>(2)));
+    r = ((ValueType)0.005) * (((ValueType)2)+sin<ValueType>(theta+sqrt<ValueType>(2)));
   };
-  GenericGeom(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 40, (Real)1);
+  if (tol <= 0) {
+    GenericGeom<ValueType>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 40, (ValueType)1);
+  } else {
+    GenericGeomAdap<ValueType>(elem_lst0, geom_fn, tol, comm, ChebOrder, 14, (ValueType)1);
+  }
 }
 
-template <class Real> void GeomSphere(SlenderElemList<Real>& elem_lst0, Vector<Real> panel_len = Vector<Real>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const Real R = 1, const Long ChebOrder = 10) {
-  auto geom_fn = [R](Real& x, Real& y, Real& z, Real& r, const Real theta){
-    x = R * cos<Real>(theta/2);
+template <class ValueType, class Real> void GeomSphere(SlenderElemList<Real>& elem_lst0, Vector<ValueType> panel_len = Vector<ValueType>(), Vector<Long> FourierOrder = Vector<Long>(), const Comm& comm = Comm::Self(), const ValueType R = 1, const Long ChebOrder = 10) {
+  auto geom_fn = [R](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType theta){
+    x = R * cos<ValueType>(theta/2);
     y = 0;
     z = 0;
-    r = R * sin<Real>(theta/2);
+    r = R * sin<ValueType>(theta/2);
   };
-  GenericGeom(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 24, (Real)1);
+  GenericGeom<ValueType>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 24, (ValueType)1);
 }
 
 
