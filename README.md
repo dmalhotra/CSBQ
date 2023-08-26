@@ -1,6 +1,7 @@
-# Research implementation of convergent slender-body quadrature (CSBQ)
+# Convergent slender-body quadrature (CSBQ) --- research implementation
 
-authors: Dhairya Malhotra, with SBT comparisons by Alex Barnett
+authors: _Dhairya Malhotra_, with slender-body theory comparisons by
+_Alex Barnett_
 
 This is a high-performance parallel C++ implementation of a high-order
 Nystrom quadrature for the boundary integral equations arising
@@ -36,7 +37,7 @@ make
 ./bin/slenderbody
 ```
 
-For tangle test do:
+For tangle test do (after installing PARAVIEW):
 
 ```bash
 make && ./bin/test-unitDLP-tangle && paraview tangleUerr.pvtu
