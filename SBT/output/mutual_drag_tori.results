@@ -1,0 +1,64 @@
+>> mutual_drag_tori
+
+mu = 1;               % fluid viscosity (keep at 1 to get drag coeff)
+R = 1.0;              % circle (major) radius
+delta = 10*eps;       % surface separation (centerline sep = delta+2eps)
+U1 = [0;0;0]; U2 = [0;0;1];     % imposed rigid vels of each torus
+c1 = zeros(3,1); c2 = [delta+2*(R+eps);0;0];    % centers of tori for delta sep
+
+# eps        delta        F1_z
+
+# cases delta = 100eps:
+0.0001       0.01       -1.30201588465
+0.0002       0.02       -1.433935553
+0.0005        0.05      -1.6138767015
+0.001         0.1       -1.73979531224
+0.002         0.2       -1.83417639778
+# cases delta = 10eps:
+0.0005      0.005       -1.88681149739
+0.001       0.01        -2.141785829
+0.002        0.02       -2.42930635829
+0.005       0.05        -2.84881070235
+0.01         0.1        -3.17290818864
+# cases delta = 3eps:
+0.005        0.015      -3.20628472285365
+0.01         0.03       -3.69496289782689
+0.02         0.06       -4.22422810823
+0.05         0.15       -4.91752388546598
+0.1          0.3        -5.34660781139427
+
+
+
+
+% all converged to <1e-9 err:
+
+circle (major) radii R=1, fiber radii eps=0.0005, surface min sep delta=0.005...
+N=4800:	mutual F1=(0, 0, -1.88681149739)   	self F2=(0, 0, 8.41507323647)
+
+circle (major) radii R=1, fiber radii eps=0.001, surface min sep delta=0.01...
+N=2400:	mutual F1=(0, 0, -2.141785829)   	self F2=(0, 0, 9.08517586018)
+
+circle (major) radii R=1, fiber radii eps=0.002, surface min sep delta=0.02...
+N=1200:	mutual F1=(0, 0, -2.42930635829)   	self F2=(0, 0, 9.85136722516)
+
+circle (major) radii R=1, fiber radii eps=0.005, surface min sep delta=0.05...
+N=720:	mutual F1=(0, 0, -2.84881070235)   	self F2=(0, 0, 11.0365725293)
+
+circle (major) radii R=1, fiber radii eps=0.01, surface min sep delta=0.1...
+N=720:	mutual F1=(0, 0, -3.17290818864)   	self F2=(0, 0, 12.0846209605)
+
+Case 
+delta = 100*eps;       % surface separation (centerline sep = delta+2eps)
+
+circle (major) radii R=1, fiber radii eps=0.0001, surface min sep delta=0.01...
+N=2400:	mutual F1=(0, 0, -1.30201588465)   	self F2=(0, 0, 7.05814395746)
+
+circle (major) radii R=1, fiber radii eps=0.0002, surface min sep delta=0.02...
+N=1200:	mutual F1=(0, 0, -1.433935553)   	self F2=(0, 0, 7.51316641064)
+
+circle (major) radii R=1, fiber radii eps=0.0005, surface min sep delta=0.05...
+N=720:	mutual F1=(0, 0, -1.6138767015)   	self F2=(0, 0, 8.1937851201)
+
+circle (major) radii R=1, fiber radii eps=0.001, surface min sep delta=0.1...
+N=600:	mutual F1=(0, 0, -1.73979531224)   	self F2=(0, 0, 8.7756800734)
+

@@ -1,4 +1,5 @@
-% Examine spectrum of toy: scalar SBT operator (zz-part) on the unit circle
+% Check spectrum of scalar SBT operator (zz-part) on unit circle vs analytic.
+%
 % The operator is (Ku)(t) := int_0^2pi (u(s)-u(t))/d(t,s) ds
 % where d(t,s) = 2 sin |s-t|/2 is the distance btw angles s,t on unit circle.
 %
@@ -6,7 +7,7 @@
 clear
 
 %ker = @(t,s) cos(mod(s-t,2*pi)/2);   % warm-up discont ker (half-cycle of cos)
-% (this just tested convernence of point spectrum, weak decaying eigvals...)
+% (this just tested convergence of point spectrum, weak decaying eigvals...)
 
 % toy kernel:
 ker = @(t,s) 0.5./sin(abs(s-t)/2);   % inv dist btw pts s,t on unit circ
@@ -17,6 +18,7 @@ figure(1); clf; subplot(2,1,1);
 for i=1:numel(npans); npan=npans(i)
   tpan = 2*pi*(0:npan)/npan;    % pan param breakpoints (first=0, last=2pi)
   pan = setup_pans(tpan,p);
+  [pan.w] = deal(pan.v);        % use weights wrt param t
   A = nyst_diagdiscont_sca(pan,tpan,ker);
   A = A - diag(sum(A,2));       % Nystrom for u(s) becoming u(s)-u(t) in K apply
   N = size(A,1);
@@ -30,6 +32,7 @@ Nt=numel(lam{end})/4; semilogy(1:Nt, abs(lam{end}(1:Nt)-lam{end-1}(1:Nt)),'+');
 xlabel('j'); ylabel('est error in \lambda_j');
 print -dpng figs/spec_toy_conv.png
 
+% analytic study:
 figure(2); clf;
 nmax = 300;             % max Fourier mode to predict spectrum to
 lampred = [0 kron(-4*cumsum(1./(1:2:2*nmax-1)), [1 1])];   % a zero then pairs of odd-harmonic sum eigvals
@@ -42,3 +45,4 @@ subplot(2,1,2);
 semilogy(1:(2*nmax+1), abs(lampred(:)-lam{end}(1:(2*nmax+1))),'+-');
 title('differences'); axis tight;
 print -dpng figs/spec_toy_form.png
+% this shows the eigenvalues are precisely the analytic ones, good

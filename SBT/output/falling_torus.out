@@ -1,0 +1,26 @@
+>> falling_torus
+Major rad R=3.7, minor rad eps=0.37...
+	tot F exact	60.1702932877
+	tot F SBT	59.8399624036
+	rel diff |FSBT-Fex|/Fex:		0.0054899331
+	empirical fit c.(eps/R)^2.log(R/eps):	0.005411075
+Major rad R=3.7, minor rad eps=0.037...
+	tot F exact	40.6662573531
+	tot F SBT	40.661945467
+	rel diff |FSBT-Fex|/Fex:		0.00010603105
+	empirical fit c.(eps/R)^2.log(R/eps):	0.0001082215
+Major rad R=3.7, minor rad eps=0.0037...
+	tot F exact	30.793158808
+	tot F SBT	30.7931094711
+	rel diff |FSBT-Fex|/Fex:		1.602204e-06
+	empirical fit c.(eps/R)^2.log(R/eps):	1.6233225e-06
+Major rad R=3.7, minor rad eps=0.00037...
+	tot F exact	24.7791094622
+	tot F SBT	24.7791089277
+	rel diff |FSBT-Fex|/Fex:		2.157266e-08
+	empirical fit c.(eps/R)^2.log(R/eps):	2.16443e-08
+Major rad R=3.7, minor rad eps=3.7e-05...
+	tot F exact	20.7303918649
+	tot F SBT	20.7303918593
+	rel diff |FSBT-Fex|/Fex:		2.7191116e-10
+	empirical fit c.(eps/R)^2.log(R/eps):	2.7055375e-10
