@@ -31,7 +31,7 @@ BLAS, LAPACK, FFTW
 ### Instructions:
 
 ```bash
-git clone https://github.com/dmalhotra/test-slenderbody.git
+git clone https://github.com/dmalhotra/CSBQ.git
 cd test-slenderbody
 git submodule init
 git submodule update
