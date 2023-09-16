@@ -39,7 +39,8 @@ int main(int argc, char** argv) {
     }
 
     comm.Barrier();
-    Mobility<double>::test(comm, geom, RigidBodyList<double>::Geom::Bacteria, Nobj, loop_rad, start_idx, ts_order, dt, T, ts_tol, gmres_tol, quad_tol, geom_tol, precond, out_path);
+    //Mobility<double>::test(comm, geom, RigidBodyList<double>::Geom::Bacteria, Nobj, loop_rad, start_idx, ts_order, dt, T, ts_tol, gmres_tol, quad_tol, geom_tol, precond, out_path);
+    Mobility<double>::test(comm, geom, RigidBodyList<double>::Geom::Loop, Nobj, loop_rad, start_idx, ts_order, dt, T, ts_tol, gmres_tol, quad_tol, geom_tol, precond, out_path);
 
     //Mobility<double>::test_(comm);
 

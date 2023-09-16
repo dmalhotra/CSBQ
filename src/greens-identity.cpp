@@ -18,33 +18,33 @@ int main(int argc, char** argv) {
   if (1) { // Comparison with BIEST
     Comm comm = Comm::World();
 
-    // Laplace                                                                                             // T_setup       T_eval          error
-    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-01,  2,  4); //  0.0009       0.0000    2.40383e-01
-    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-02,  2,  4); //  0.0017       0.0000    1.93179e-02
-    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-03,  4,  8); //  0.0079       0.0000    4.98477e-05
-    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-04,  4,  8); //  0.0094       0.0001    1.13478e-05
-    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-05,  6, 12); //  0.0260       0.0003    2.13988e-07
-    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-06,  6, 12); //  0.0297       0.0003    2.32068e-07
-    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-07,  6, 12); //  0.0363       0.0003    5.20561e-09
-    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-08,  8, 16); //  0.0733       0.0010    9.30810e-10
-    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-09, 10, 20); //  0.1381       0.0023    2.03763e-10
-    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-10, 10, 20); //  0.1564       0.0024    1.07048e-11
-    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-11, 12, 24); //  0.2669       0.0049    2.81498e-12
-    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-12, 14, 28); //  0.4255       0.0088    2.02177e-12
+    // Laplace                                                                                                   N   T_setup  Setup-rate   T_eval         Error
+    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-01,  2,  4); //   80    0.0035       22857   0.0006   2.18095e-01
+    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-02,  2,  4); //   80    0.0042       19048   0.0006   3.23968e-02
+    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-03,  4,  8); //  320    0.0166       19277   0.0007   3.25571e-03
+    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-04,  4,  8); //  320    0.0205       15610   0.0007   2.91289e-05
+    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-05,  6, 12); //  720    0.0559       12880   0.0015   7.57798e-07
+    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-06,  6, 12); //  720    0.0666       10811   0.0015   2.35023e-07
+    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-07,  6, 12); //  720    0.0808        8911   0.0015   2.16675e-07
+    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-08,  8, 16); // 1280    0.1660        7711   0.0037   1.05686e-09
+    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-09, 10, 20); // 2000    0.3090        6472   0.0082   1.79366e-09
+    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-10, 10, 20); // 2000    0.3572        5599   0.0083   2.07719e-10
+    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-11, 12, 24); // 2880    0.6047        4763   0.0168   1.16382e-11
+    test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-12, 14, 28); // 3920    0.9395        4172   0.0292   1.96540e-12
 
-    // Stokes                                                                                          // T_setup       T_eval          error
-    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-01,  2,  4); //  0.0015       0.0000    2.56128e-01
-    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-02,  2,  4); //  0.0025       0.0000    2.44248e-02
-    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-03,  4,  8); //  0.0141       0.0003    8.99652e-05
-    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-04,  4,  8); //  0.0164       0.0003    1.94202e-05
-    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-05,  6, 12); //  0.0536       0.0014    1.39755e-06
-    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-06,  6, 12); //  0.0600       0.0014    2.36850e-08
-    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-07,  6, 12); //  0.0725       0.0016    1.82834e-08
-    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-08,  8, 16); //  0.1634       0.0044    1.58734e-09
-    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-09, 10, 20); //  0.3173       0.0100    1.23922e-10
-    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-10, 10, 20); //  0.3694       0.0106    6.99807e-12
-    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-11, 12, 40); //  1.4705       0.0493    4.94875e-12
-    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-12, 14, 28); //  1.1100       0.0357    1.71970e-12
+    // Stokes                                                                                                    N   T_setup  Setup-rate   T_eval         Error
+    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-01,  2,  4); //      240    0.0049       48980   0.0006   2.23282e-01
+    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-02,  2,  4); //      240    0.0066       36364   0.0006   2.77515e-02
+    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-03,  4,  8); //      960    0.0323       29721   0.0012   5.55396e-03
+    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-04,  4,  8); //      960    0.0398       24121   0.0013   1.72239e-04
+    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-05,  6, 12); //     2160    0.1266       17062   0.0041   2.22350e-07
+    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-06,  6, 12); //     2160    0.1493       14468   0.0043   1.31611e-06
+    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-07,  6, 12); //     2160    0.1795       12033   0.0050   2.17364e-08
+    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-08,  8, 16); //     3840    0.4019        9555   0.0131   7.60145e-09
+    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-09, 10, 20); //     6000    0.7554        7943   0.0283   1.46205e-10
+    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-10, 10, 20); //     6000    0.8640        6944   0.0304   3.56598e-11
+    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-11, 12, 24); //     8640    1.6651        5189   0.0577   2.09852e-12
+    test_greens_identity_torus<double, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(comm, 1e-12, 14, 28); //    11760    2.6551        4429   0.0992   1.72616e-12
   }
 
   Comm::MPI_Finalize();

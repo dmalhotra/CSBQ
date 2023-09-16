@@ -204,13 +204,13 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
   elem_lst0.WriteVTK("vis/U-helix", U, comm);
 
   const Stokes3D_FxU ker_FxU; // single-layer kernel
+  const Stokes3D_FSxU ker_FSxU; // stokeslet + source kernel
   BoundaryIntegralOp<Real,Stokes3D_FxU> BIOp_StokesFxU(ker_FxU, false, comm); // boundary integral operator
-  BIOp_StokesFxU.SetFMMKer(ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU);
+  BIOp_StokesFxU.SetFMMKer(ker_FxU, ker_FxU, ker_FxU, ker_FSxU, ker_FSxU, ker_FSxU, ker_FxU, ker_FxU);
   BIOp_StokesFxU.AddElemList(elem_lst0);
   BIOp_StokesFxU.SetAccuracy(quad_tol);
 
   const Stokes3D_DxU ker_DxU; // double-layer kernel
-  const Stokes3D_FSxU ker_FSxU; // stokeslet + source kernel
   BoundaryIntegralOp<Real,Stokes3D_DxU> BIOp_StokesDxU(ker_DxU, false, comm); // boundary integral operator (double-layer)
   BIOp_StokesDxU.SetFMMKer(ker_DxU, ker_DxU, ker_DxU, ker_FSxU, ker_FSxU, ker_FSxU, ker_FxU, ker_FxU);
   BIOp_StokesDxU.AddElemList(elem_lst0);

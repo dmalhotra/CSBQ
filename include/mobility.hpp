@@ -46,43 +46,35 @@ namespace sctl {
     };
 
     RigidBodyList(const Comm& comm = Comm::Self(), const Long Nobj = 1, const Real loop_rad = 0.45, const Geom& geom_type = Geom::Loop) : comm_(comm) {
-      const Long Npanel = 32;
-      const Long ChebOrder0 = 10;
-      const Long FourierOrder0 = 32;
-
-      obj_elem_cnt.ReInit(Nobj);
-      obj_elem_cnt = Npanel;
-      obj_elem_dsp.ReInit(Nobj); obj_elem_dsp = 0;
-      omp_par::scan(obj_elem_cnt.begin(), obj_elem_dsp.begin(), Nobj);
-
-      FourierOrder.ReInit(Nobj * Npanel);
-      ChebOrder.ReInit(Nobj * Npanel);
-      FourierOrder = FourierOrder0;
-      ChebOrder = ChebOrder0;
-
-      InitGeom(X, R, OrientVec, panel_len, Mr_lst, obj_elem_cnt, obj_elem_dsp, ChebOrder, loop_rad, geom_type);
+      InitGeom(X, R, OrientVec, ChebOrder, FourierOrder, panel_len, Mr_lst, obj_elem_cnt, obj_elem_dsp, Nobj, loop_rad, geom_type);
       InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ChebOrder, FourierOrder, X, R, OrientVec, comm_);
       GetXc(Xc, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
     }
 
-    void Init(const Vector<Long>& obj_elem_cnt_, const Vector<Real>& Xc_, const Vector<Real>& Mr_lst_, const Vector<Long>& ChebOrder_, const Vector<Long>& FourierOrder_, const Vector<Real>& panel_len_, const Vector<Real>& X_, const Vector<Real>& R_, const Vector<Real>& OrientVec_) {
+    template <class ValueType> void Init(const Vector<Long>& obj_elem_cnt_, const Vector<ValueType>& Mr_lst_, const Vector<Long>& ChebOrder_, const Vector<Long>& FourierOrder_, const Vector<ValueType>& panel_len_, const Vector<ValueType>& X_, const Vector<ValueType>& R_, const Vector<ValueType>& OrientVec_) {
       const Long Nobj = obj_elem_cnt_.Dim();
       obj_elem_cnt = obj_elem_cnt_;
       obj_elem_dsp.ReInit(Nobj); obj_elem_dsp = 0;
       omp_par::scan(obj_elem_cnt.begin(), obj_elem_dsp.begin(), Nobj);
 
-      Xc = Xc_;
-      Mr_lst = Mr_lst_;
-      SCTL_ASSERT(Xc.Dim() == Nobj*COORD_DIM);
+      if (Mr_lst.Dim() != Mr_lst_.Dim()) Mr_lst.ReInit(Mr_lst_.Dim());
+      for (Long i = 0; i < Mr_lst.Dim(); i++) Mr_lst[i] = (Real)Mr_lst_[i];
       SCTL_ASSERT(Mr_lst.Dim() == Nobj*COORD_DIM*COORD_DIM);
 
       ChebOrder = ChebOrder_;
       FourierOrder = FourierOrder_;
-      panel_len = panel_len_;
-      X = X_;
-      R = R_;
-      OrientVec = OrientVec_;
-      InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ChebOrder, FourierOrder, X, R, OrientVec, comm_);
+
+      if (panel_len.Dim() != panel_len_.Dim()) panel_len.ReInit(panel_len_.Dim());
+      if (        X.Dim() !=         X_.Dim())         X.ReInit(        X_.Dim());
+      if (        R.Dim() !=         R_.Dim())         R.ReInit(        R_.Dim());
+      if (OrientVec.Dim() != OrientVec_.Dim()) OrientVec.ReInit(OrientVec_.Dim());
+      for (Long i = 0; i < panel_len.Dim(); i++) panel_len[i] = (Real)panel_len_[i];
+      for (Long i = 0; i <         X.Dim(); i++)         X[i] = (Real)        X_[i];
+      for (Long i = 0; i <         R.Dim(); i++)         R[i] = (Real)        R_[i];
+      for (Long i = 0; i < OrientVec.Dim(); i++) OrientVec[i] = (Real)OrientVec_[i];
+
+      InitElemList<ValueType>(loc_elem_cnt, loc_elem_dsp, elem_lst, ChebOrder, FourierOrder, X_, R_, OrientVec_, comm_);
+      GetXc(Xc, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
     }
 
     void Write(const std::string& fname) const {
@@ -128,7 +120,7 @@ namespace sctl {
       fclose(f1);
     }
 
-    void Read(const std::string& fname) {
+    void Read(const std::string& fname, const Long Nobj_ = -1) {
       FILE* f1 = fopen(fname.c_str(), "r");
       if (f1 == nullptr) {
         std::cout << "Unable to open file for reading:" << fname << '\n';
@@ -168,6 +160,43 @@ namespace sctl {
 
       SCTL_UNUSED(readlen);
       fclose(f1);
+
+      if (Nobj_ >= 0) { // Select the first Nobj_ objects
+        Vector<Long> obj_elem_cnt_, obj_elem_dsp_;
+        Vector<Real> Xc_, Mr_lst_;
+        Vector<Long> ChebOrder_, FourierOrder_;
+        Vector<Real> panel_len_;
+        Vector<Real> X_, R_, OrientVec_;
+
+        Long Nelem_ = 0, Nnds_ = 0;
+        for (Long i = 0; i < Nobj_; i++) {
+          Nelem_ += obj_elem_cnt[i];
+          obj_elem_cnt_.PushBack(obj_elem_cnt[i]);
+          obj_elem_dsp_.PushBack(obj_elem_dsp[i]);
+          for (Long j = 0; j < COORD_DIM; j++) Xc_.PushBack(Xc[i*COORD_DIM+j]);
+          for (Long j = 0; j < COORD_DIM*COORD_DIM; j++) Mr_lst_.PushBack(Mr_lst[i*COORD_DIM*COORD_DIM+j]);
+        }
+        for (Long i = 0; i < Nelem_; i++) {
+          Nnds_ += ChebOrder[i];
+          ChebOrder_.PushBack(ChebOrder[i]);
+          FourierOrder_.PushBack(FourierOrder[i]);
+          panel_len_.PushBack(panel_len[i]);
+        }
+        for (Long i = 0; i < Nnds_; i++) R_.PushBack(R[i]);
+        for (Long i = 0; i < Nnds_*COORD_DIM; i++) X_.PushBack(X[i]);
+        for (Long i = 0; i < Nnds_*COORD_DIM; i++) OrientVec_.PushBack(OrientVec[i]);
+
+        obj_elem_cnt = obj_elem_cnt_;
+        obj_elem_dsp = obj_elem_dsp_;
+        Xc = Xc_;
+        Mr_lst = Mr_lst_;
+        ChebOrder = ChebOrder_;
+        FourierOrder = FourierOrder_;
+        panel_len = panel_len_;
+        R = R_;
+        X = X_;
+        OrientVec = OrientVec_;
+      }
 
       InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ChebOrder, FourierOrder, X, R, OrientVec, comm_);
     }
@@ -238,11 +267,14 @@ namespace sctl {
             }
           }
         }
-        Vector<Real> qk_dot_qk = inner_prod(q_k, q_k);
+
+        Vector<Real> rsqrt_qk_dot_qk = inner_prod(q_k, q_k);
+        for (auto& x : rsqrt_qk_dot_qk) x = 1/sqrt<Real>(x);
+
         for (Long node_idx = 0; node_idx < Nloc; node_idx++) { // Q[k] <-- normalize(q_k)
           const Long obj = node_obj_idx[node_idx];
           for(Long l = 0; l < COORD_DIM; l++) {
-            q_k[node_idx*COORD_DIM+l] /= sqrt<Real>(qk_dot_qk[obj]);
+            q_k[node_idx*COORD_DIM+l] *= rsqrt_qk_dot_qk[obj];
           }
         }
       }
@@ -295,8 +327,6 @@ namespace sctl {
             const Long node_idx = node_dsp_loc[i]+j;
             for (Integer k0 = 0; k0 < COORD_DIM; k0++) {
               for (Integer k1 = 0; k1 < COORD_DIM; k1++) {
-                U_loc[node_idx*COORD_DIM+k0];
-                Uc[obj_idx*COORD_DIM+k0];
                 const Real Ur_k0 = U_loc[node_idx*COORD_DIM+k0] - Uc[obj_idx*COORD_DIM+k0];
                 const Real Ur_k1 = U_loc[node_idx*COORD_DIM+k1] - Uc[obj_idx*COORD_DIM+k1];
                 UUt_loc[(node_idx*COORD_DIM+k0)*COORD_DIM+k1] = Ur_k0 * Ur_k1;
@@ -410,8 +440,9 @@ namespace sctl {
       Xc += dXc;
     }
 
-    void RefineAdaptive(const Vector<Vector<Real>>& v_, const Real tol) {
-      static constexpr Integer FOURIER_ORDER_MIN = 8;
+    void RefineAdaptive(const Vector<Vector<Real>>& v_, const Real tol, const bool relative = true) {
+      // TODO: implements element-wise relative error. Would global relative error be better?
+      static constexpr Integer FOURIER_ORDER_MIN = 4;
       static constexpr Integer FOURIER_ORDER_STEP = 4;
       static constexpr Integer FOURIER_ORDER_MAX = 100;
 
@@ -437,24 +468,33 @@ namespace sctl {
         Real max_cheb_err = 0, max_fourier_err = 0;
         for (Long j = 0; j < v.Dim(); j++) {
           const Long dof = v[j].Dim()/(X_loc.Dim()/COORD_DIM);
+
+          Real max_val_inv = 0;
+          if (relative) {
+            Real max_val = 0;
+            const Vector<Real> vv(ChebOrder_*FourierOrder_*dof, v[j].begin() + node_dsp_loc[i]*dof, false);
+            for (const auto& x : vv) max_val = std::max<Real>(max_val, fabs(x));
+            max_val_inv = 1/max_val;
+          } else {
+            max_val_inv = 1;
+          }
+
           const Matrix<Real> v_(ChebOrder_, FourierOrder_*dof, v[j].begin() + node_dsp_loc[i]*dof, false);
           const Matrix<Real> cheb_err = v_.Transpose() * ChebErrMatrix(ChebOrder_);
-          for (const auto& x : cheb_err) max_cheb_err = std::max<Real>(max_cheb_err, fabs(x));
+          for (const auto& x : cheb_err) max_cheb_err = std::max<Real>(max_cheb_err, fabs(x)*max_val_inv);
 
           const Matrix<Real> v_tmp = Matrix<Real>(ChebOrder_*FourierOrder_, dof, (Iterator<Real>)v_.begin(), false).Transpose();
           const Matrix<Real> v__(dof*ChebOrder_, FourierOrder_, (Iterator<Real>)v_tmp.begin(), false);
           const Matrix<Real> fourier_err = v__ * FourierErrMatrix(FourierOrder_);
-          for (const auto& x : fourier_err) max_fourier_err = std::max<Real>(max_fourier_err, fabs(x));
+          for (const auto& x : fourier_err) max_fourier_err = std::max<Real>(max_fourier_err, fabs(x)*max_val_inv);
         }
-        elem_fourier_err_loc[i] = max_fourier_err;
-        elem_cheb_err_loc[i] = max_cheb_err;
+        elem_fourier_err_loc[i] = pow<Real>(max_fourier_err, (FourierOrder_+1)/(Real)(FourierOrder_-1));
+        elem_cheb_err_loc[i] = pow<Real>(max_cheb_err, (ChebOrder_+1)/(Real)(ChebOrder_-1));
 
-        FourierOrderLoc[i] = std::min<Long>(std::max<Long>(FOURIER_ORDER_MIN, (Long)(FourierOrder_*log<Real>(tol)/log<Real>(max_fourier_err))), FOURIER_ORDER_MAX);
+        FourierOrderLoc[i] = std::min<Long>(std::max<Long>(FOURIER_ORDER_MIN, (Long)(FourierOrder_*log<Real>(tol)/log<Real>(max_fourier_err)+FOURIER_ORDER_STEP)), FOURIER_ORDER_MAX);
         FourierOrderLoc[i] -= FourierOrderLoc[i] % FOURIER_ORDER_STEP;
       }
       FourierOrder = Allgather(FourierOrderLoc, comm_);
-
-
 
       Vector<Long> ChebOrder_new, FourierOrder_new;
       Vector<Long> obj_elem_cnt_new, obj_elem_dsp_new;
@@ -583,8 +623,6 @@ namespace sctl {
         }
       }
 
-
-
       X = X_new;
       R = R_new;
       OrientVec = OrientVec_new;
@@ -696,7 +734,7 @@ namespace sctl {
 
       for (Long obj = 0; obj < Nobj; obj++) { // x2 <-- rotate(x2)
         const Long N = x2.Dim()/Nobj/dof;
-        const Matrix<Real> Mr = Matrix<Real>(COORD_DIM, COORD_DIM, Mr_lst_.begin()+obj*COORD_DIM*COORD_DIM).pinv();
+        const Matrix<Real> Mr = Matrix<Real>(COORD_DIM, COORD_DIM, Mr_lst_.begin()+obj*COORD_DIM*COORD_DIM).pinv(sctl::machine_eps<Real>());
         Matrix<Real> U(N, dof, x2.begin() + obj*N*dof, false);
         U = U * Mr;
       }
@@ -742,7 +780,38 @@ namespace sctl {
       Ax0 = Ax2;
     }
 
-    private:
+    Real GetMinDist() const {
+      const Long Nobj = obj_elem_cnt.Dim();
+      Vector<Long> obj_node_cnt(Nobj), obj_node_dsp(Nobj);
+      obj_node_cnt = 0; obj_node_dsp = 0;
+      for (Long i = 0; i < Nobj; i++) {
+        for (Long j = 0; j < obj_elem_cnt[i]; j++) {
+          obj_node_cnt[i] += ChebOrder[obj_elem_dsp[i]+j];
+        }
+      }
+      omp_par::scan(obj_node_cnt.begin(), obj_node_dsp.begin(), obj_node_cnt.Dim());
+
+      Real r_min = -1;
+      for (Long i = 0; i < Nobj; i++) {
+        for (Long j = 0; j < Nobj; j++) {
+          if (i == j) continue;
+          for (Long ii = 0; ii < obj_node_cnt[i]; ii++) {
+            for (Long jj = 0; jj < obj_node_cnt[j]; jj++) {
+              const Long idx_i = obj_node_dsp[i]+ii;
+              const Long idx_j = obj_node_dsp[j]+jj;
+              const StaticArray<Real,COORD_DIM> dx{X[idx_i*COORD_DIM+0]-X[idx_j*COORD_DIM+0],
+                                                   X[idx_i*COORD_DIM+1]-X[idx_j*COORD_DIM+1],
+                                                   X[idx_i*COORD_DIM+2]-X[idx_j*COORD_DIM+2]};
+              const Real r = sqrt<Real>(dx[0]*dx[0] + dx[1]*dx[1] + dx[2]*dx[2]) - R[idx_i] - R[idx_j];
+              r_min = (r_min < 0 ? r : std::min<Real>(r_min, r));
+            }
+          }
+        }
+      }
+      return r_min;
+    }
+
+    //private:
 
     template <Integer dof> static void Resample(Vector<Real>& x_trg0, const Vector<Real>& panel_len_trg, const Vector<Long>& ChebOrder_trg, const Vector<Long>& FourierOrder_trg, const Vector<Real>& x_src, const Vector<Real>& panel_len_src, const Vector<Long>& ChebOrder_src, const Vector<Long>& FourierOrder_src) {
       const Long Ns = panel_len_src.Dim();
@@ -921,7 +990,7 @@ namespace sctl {
             M1[k*2+1][i] = sin<Real>(2*const_pi<Real>()*k*i/N1);
           }
         }
-        M = M0.pinv() * M1;
+        M = M0.pinv(sctl::machine_eps<Real>()*32) * M1;
       }
       return M;
     }
@@ -1003,8 +1072,155 @@ namespace sctl {
       InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, Xc, ChebOrder, FourierOrder, X, R, OrientVec, obj_elem_cnt, comm_);
     }
 
-    static void InitGeom(Vector<Real>& X, Vector<Real>& R, Vector<Real>& OrientVec, Vector<Real>& panel_len, Vector<Real>& Mr_lst, const Vector<Long>& cnt, const Vector<Long>& dsp, const Vector<Long>& ChebOrder, const Real loop_rad, const Geom& geom_type) {
+    static void InitGeom(Vector<Real>& X, Vector<Real>& R, Vector<Real>& OrientVec, Vector<Long>& ChebOrder, Vector<Long>& FourierOrder, Vector<Real>& panel_len, Vector<Real>& Mr_lst, Vector<Long>& cnt, Vector<Long>& dsp, const Long Nobj, const Real loop_rad, const Geom& geom_type) {
       srand48(2);
+      const Long ChebOrder0 = 10;
+      if (1) { // Set ChebOrder, FourierOrder, panel_len, Mr_lst, cnt, dsp (Uniform discretization)
+        const Long Npanel = 16;
+        const Long FourierOrder0 = 16;
+
+        //const Long Npanel = 32;
+        //const Long FourierOrder0 = 32;
+
+        cnt.ReInit(Nobj); cnt = Npanel;
+        dsp.ReInit(Nobj); dsp = 0;
+        omp_par::scan(cnt.begin(), dsp.begin(), Nobj);
+
+        ChebOrder.ReInit(Nobj * Npanel);
+        FourierOrder.ReInit(Nobj * Npanel);
+        panel_len.ReInit(Nobj * Npanel);
+
+        ChebOrder = ChebOrder0;
+        FourierOrder = FourierOrder0;
+        panel_len = 1/(Real)Npanel;
+      } else { // Adaptive discretization
+        Vector<Real> panel_len0;
+        Vector<Long> FourierOrder0;
+        if (1) { // Set panel_len0, FourierOrder0
+          panel_len0.PushBack(1.0/(Real)128);
+          panel_len0.PushBack(1.0/(Real)128);
+          panel_len0.PushBack(1.0/(Real)64 );
+          panel_len0.PushBack(1.0/(Real)32 );
+          panel_len0.PushBack(1.0/(Real)16 );
+          panel_len0.PushBack(1.0/(Real)16 );
+          panel_len0.PushBack(1.0/(Real)16 );
+          panel_len0.PushBack(1.0/(Real)16 );
+          panel_len0.PushBack(1.0/(Real)16 );
+          panel_len0.PushBack(1.0/(Real)16 );
+          panel_len0.PushBack(1.0/(Real)32 );
+          panel_len0.PushBack(1.0/(Real)64 );
+          panel_len0.PushBack(1.0/(Real)128);
+          panel_len0.PushBack(1.0/(Real)128);
+          panel_len0.PushBack(1.0/(Real)128);
+          panel_len0.PushBack(1.0/(Real)128);
+          panel_len0.PushBack(1.0/(Real)64 );
+          panel_len0.PushBack(1.0/(Real)32 );
+          panel_len0.PushBack(1.0/(Real)16 );
+          panel_len0.PushBack(1.0/(Real)16 );
+          panel_len0.PushBack(1.0/(Real)16 );
+          panel_len0.PushBack(1.0/(Real)16 );
+          panel_len0.PushBack(1.0/(Real)16 );
+          panel_len0.PushBack(1.0/(Real)16 );
+          panel_len0.PushBack(1.0/(Real)32 );
+          panel_len0.PushBack(1.0/(Real)64 );
+          panel_len0.PushBack(1.0/(Real)128);
+          panel_len0.PushBack(1.0/(Real)128);
+
+          FourierOrder0.PushBack(100);
+          FourierOrder0.PushBack(100);
+          FourierOrder0.PushBack( 72);
+          FourierOrder0.PushBack( 40);
+          FourierOrder0.PushBack( 24);
+          FourierOrder0.PushBack( 16);
+          FourierOrder0.PushBack( 16);
+          FourierOrder0.PushBack( 16);
+          FourierOrder0.PushBack( 16);
+          FourierOrder0.PushBack( 24);
+          FourierOrder0.PushBack( 40);
+          FourierOrder0.PushBack( 72);
+          FourierOrder0.PushBack(100);
+          FourierOrder0.PushBack(100);
+          FourierOrder0.PushBack(100);
+          FourierOrder0.PushBack(100);
+          FourierOrder0.PushBack( 72);
+          FourierOrder0.PushBack( 40);
+          FourierOrder0.PushBack( 24);
+          FourierOrder0.PushBack( 16);
+          FourierOrder0.PushBack( 16);
+          FourierOrder0.PushBack( 16);
+          FourierOrder0.PushBack( 16);
+          FourierOrder0.PushBack( 24);
+          FourierOrder0.PushBack( 40);
+          FourierOrder0.PushBack( 72);
+          FourierOrder0.PushBack(100);
+          FourierOrder0.PushBack(100);
+        } else {
+          panel_len0.PushBack(1.0/(Real)64);
+          panel_len0.PushBack(1.0/(Real)64);
+          panel_len0.PushBack(1.0/(Real)32);
+          panel_len0.PushBack(1.0/(Real)16);
+          panel_len0.PushBack(1.0/(Real)16);
+          panel_len0.PushBack(1.0/(Real)16);
+          panel_len0.PushBack(1.0/(Real)16);
+          panel_len0.PushBack(1.0/(Real)16);
+          panel_len0.PushBack(1.0/(Real)16);
+          panel_len0.PushBack(1.0/(Real)32);
+          panel_len0.PushBack(1.0/(Real)64);
+          panel_len0.PushBack(1.0/(Real)64);
+          panel_len0.PushBack(1.0/(Real)64);
+          panel_len0.PushBack(1.0/(Real)64);
+          panel_len0.PushBack(1.0/(Real)32);
+          panel_len0.PushBack(1.0/(Real)16);
+          panel_len0.PushBack(1.0/(Real)16);
+          panel_len0.PushBack(1.0/(Real)16);
+          panel_len0.PushBack(1.0/(Real)16);
+          panel_len0.PushBack(1.0/(Real)16);
+          panel_len0.PushBack(1.0/(Real)16);
+          panel_len0.PushBack(1.0/(Real)32);
+          panel_len0.PushBack(1.0/(Real)64);
+          panel_len0.PushBack(1.0/(Real)64);
+
+          FourierOrder0.PushBack(72);
+          FourierOrder0.PushBack(40);
+          FourierOrder0.PushBack(24);
+          FourierOrder0.PushBack(16);
+          FourierOrder0.PushBack(16);
+          FourierOrder0.PushBack(16);
+          FourierOrder0.PushBack(16);
+          FourierOrder0.PushBack(16);
+          FourierOrder0.PushBack(16);
+          FourierOrder0.PushBack(24);
+          FourierOrder0.PushBack(40);
+          FourierOrder0.PushBack(72);
+          FourierOrder0.PushBack(72);
+          FourierOrder0.PushBack(40);
+          FourierOrder0.PushBack(24);
+          FourierOrder0.PushBack(16);
+          FourierOrder0.PushBack(16);
+          FourierOrder0.PushBack(16);
+          FourierOrder0.PushBack(16);
+          FourierOrder0.PushBack(16);
+          FourierOrder0.PushBack(16);
+          FourierOrder0.PushBack(24);
+          FourierOrder0.PushBack(40);
+          FourierOrder0.PushBack(72);
+        }
+
+        cnt.ReInit(Nobj); cnt = panel_len0.Dim();
+        dsp.ReInit(Nobj); dsp = 0;
+        omp_par::scan(cnt.begin(), dsp.begin(), Nobj);
+
+        ChebOrder.ReInit(0);
+        FourierOrder.ReInit(0);
+        panel_len.ReInit(0);
+        for (Long i = 0; i < Nobj; i++) {
+          for (Long j = 0; j < cnt[i]; j++) {
+            ChebOrder.PushBack(ChebOrder0);
+            FourierOrder.PushBack(FourierOrder0[j]);
+            panel_len.PushBack(panel_len0[j]);
+          }
+        }
+      }
 
       auto loop_geom = [&loop_rad](Real& x, Real& y, Real& z, Real& ex, Real& ey, Real& ez, Real& r, const Real theta){
         x = loop_rad * cos<Real>(theta);
@@ -1035,11 +1251,9 @@ namespace sctl {
         else if (L*(1-t) < const_pi<Real>()/2) r = scal * sin<Real>(L*(1-t));
         else r = scal;
       };
-      const Long Nobj = cnt.Dim();
 
       X.ReInit(0);
       R.ReInit(0);
-      panel_len.ReInit(0);
       Mr_lst.ReInit(0);
       for (Long i = 0; i < Nobj; i++) {
         Real X0, Y0, Z0;
@@ -1066,7 +1280,6 @@ namespace sctl {
 
         Real s_dsp = 0;
         for (Long j = 0; j < cnt[i]; j++) { // Set X, OrientVec, R
-          panel_len.PushBack(1/(Real)cnt[i]);
           const Long ChebOrder_ = ChebOrder[dsp[i]+j];
           const auto& nds = SlenderElemList<Real>::CenterlineNodes(ChebOrder_);
           for (Long k = 0; k < ChebOrder_; k++) {
@@ -1140,13 +1353,13 @@ namespace sctl {
       }
     }
 
-    static void InitElemList(Long& loc_elem_cnt, Long& loc_elem_dsp, SlenderElemList<Real>& elem_lst, const Vector<Long>& ChebOrder, const Vector<Long>& FourierOrder, const Vector<Real>& X, const Vector<Real>& R, const Vector<Real>& OrientVec, const Comm comm) {
+    template <class ValueType> static void InitElemList(Long& loc_elem_cnt, Long& loc_elem_dsp, SlenderElemList<Real>& elem_lst, const Vector<Long>& ChebOrder, const Vector<Long>& FourierOrder, const Vector<ValueType>& X, const Vector<ValueType>& R, const Vector<ValueType>& OrientVec, const Comm comm) {
       // TODO: parallelize
 
       const Long Nelem = ChebOrder.Dim();
       if (Nelem) { // Set loc_elem_cnt, loc_elem_dsp // TODO: use better cost estimate
         Vector<Long> node_cnt(Nelem), node_dsp(Nelem); node_dsp = 0;
-        for (Long i = 0; i < Nelem; i++) node_cnt[i] = ChebOrder[i] * FourierOrder[i];
+        for (Long i = 0; i < Nelem; i++) node_cnt[i] = ChebOrder[i] * FourierOrder[i] * FourierOrder[i];
         omp_par::scan(node_cnt.begin(), node_dsp.begin(), Nelem);
         const Long Nnodes = node_cnt[Nelem-1] + node_dsp[Nelem-1];
 
@@ -1158,6 +1371,28 @@ namespace sctl {
         if (rank == 0) a = 0;
         loc_elem_cnt = b-a;
         loc_elem_dsp = a;
+
+        if (0 && !comm.Rank()) { // Print partitioning
+          std::cout<<"Partitioning: ";
+          for (Long i = 0; i < comm.Size(); i++) {
+            Long a = std::lower_bound(node_dsp.begin(),  node_dsp.end(), Nnodes*(i+0)/Np) - node_dsp.begin();
+            Long b = std::lower_bound(node_dsp.begin(),  node_dsp.end(), Nnodes*(i+1)/Np) - node_dsp.begin();
+            if (i == Np - 1) b = Nelem;
+            if (i == 0) a = 0;
+            std::cout<<b-a<<' ';
+          }
+          std::cout<<'\n';
+
+          std::cout<<"Weight: ";
+          for (Long i = 0; i < comm.Size(); i++) {
+            Long a = std::lower_bound(node_dsp.begin(),  node_dsp.end(), Nnodes*(i+0)/Np) - node_dsp.begin();
+            Long b = std::lower_bound(node_dsp.begin(),  node_dsp.end(), Nnodes*(i+1)/Np) - node_dsp.begin();
+            if (i == Np - 1) b = Nelem;
+            if (i == 0) a = 0;
+            std::cout<<node_dsp[b-1]+node_cnt[b-1]-node_dsp[a]<<' ';
+          }
+          std::cout<<'\n';
+        }
       } else {
         loc_elem_cnt = 0;
         loc_elem_dsp = 0;
@@ -1170,10 +1405,10 @@ namespace sctl {
         Long dsp = 0, cnt = 0;
         for (Long i = 0; i < loc_elem_dsp; i++) dsp += ChebOrder[i];
         for (Long i = 0; i < loc_elem_cnt; i++) cnt += ChebOrder[loc_elem_dsp+i];
-        const Vector<Real> X_(cnt*COORD_DIM, (Iterator<Real>)X.begin() + dsp*COORD_DIM, false);
-        const Vector<Real> R_(cnt, (Iterator<Real>)R.begin() + dsp, false);
-        const Vector<Real> OrientVec_(cnt*COORD_DIM, (Iterator<Real>)OrientVec.begin() + dsp*COORD_DIM, false);
-        elem_lst.Init(LocChebOrder, LocFourierOrder, X_, R_, OrientVec_);
+        const Vector<ValueType> X_(cnt*COORD_DIM, (Iterator<ValueType>)X.begin() + dsp*COORD_DIM, false);
+        const Vector<ValueType> R_(cnt, (Iterator<ValueType>)R.begin() + dsp, false);
+        const Vector<ValueType> OrientVec_(cnt*COORD_DIM, (Iterator<ValueType>)OrientVec.begin() + dsp*COORD_DIM, false);
+        elem_lst.template Init<ValueType>(LocChebOrder, LocFourierOrder, X_, R_, OrientVec_);
       }
     }
 
@@ -1278,13 +1513,17 @@ namespace sctl {
 
     public:
 
-    Mobility(const Comm& comm, Real gravity = 0) : comm_(comm), BIOp_StokesFxU(ker_FxU, false, comm), BIOp_StokesFxT(ker_FxT, true, comm), BIOp_StokesDxU(ker_DxU, false, comm), gravity_(gravity) {
+    Mobility(const Comm& comm, Real gravity = 0) : comm_(comm), BIOp_StokesFxU(ker_FxU, false, comm), BIOp_StokesFxT(ker_FxT, true, comm), BIOp_StokesDxU(ker_DxU, false, comm), gravity_(gravity), SL_scal((Real)1), DL_scal((Real)1) {
       BIOp_StokesFxT.SetFMMKer(ker_FxUP, ker_FxUP, ker_FxT, ker_FxUP, ker_FxUP, ker_FxT, ker_FxUP, ker_FxT);
       BIOp_StokesDxU.SetFMMKer(ker_DxU, ker_DxU, ker_DxU, ker_FSxU, ker_FSxU, ker_FSxU, ker_FxU, ker_FxU);
       BIOp_StokesFxU.SetFMMKer(ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU, ker_FxU);
     }
 
-    void BuildPrecond(const RigidBodyList<Real>& geom, const Real quad_tol = 1e-14) const {
+    void SetSLScaling(const Real SL_scal_) const {
+      SL_scal = SL_scal_;
+    }
+
+    void BuildPrecond(const RigidBodyList<Real>& geom, const std::string& precond_fname, const Real quad_tol = 1e-14) const {
       geom_precond = geom;
       Mprecond.ReInit(0,0);
 
@@ -1295,7 +1534,7 @@ namespace sctl {
         x0 = Allgather(x0, comm_);
         precond_size = x0.Dim();
 
-        x1.Read((std::string("precond/X-precond")+std::to_string(precond_size)).c_str());
+        x1.Read((precond_fname+std::string("-X-")+std::to_string(precond_size)).c_str());
         if (x1.Dim() == x0.Dim()) {
           Real max_err = 0, max_val = 0;
           for (Long i = 0; i < x0.Dim(); i++) {
@@ -1303,17 +1542,19 @@ namespace sctl {
             max_val = std::max<Real>(max_val, fabs(x0[i]));
           }
           if (max_err/max_val < quad_tol) {
-            Mprecond.Read((std::string("precond/M-precond")+std::to_string(precond_size)).c_str());
+            Mprecond.Read((precond_fname+std::string("-M-")+std::to_string(precond_size)).c_str());
             if (Mprecond.Dim(0) == x0.Dim() && Mprecond.Dim(1) == x0.Dim()) {
               return;
             } else {
               Mprecond.ReInit(0,0);
             }
+          } else {
+            SCTL_ASSERT_MSG(false, "Preconditioner file already exists but does not match the current geometry");
           }
         }
         if (Mprecond.Dim(0)*Mprecond.Dim(1) == 0) {
-          if (!comm_.Rank()) x0.Write((std::string("precond/X-precond")+std::to_string(precond_size)).c_str());
-          if (!comm_.Rank()) geom_precond.Write(std::string("precond/geom-precond")+std::to_string(precond_size));
+          if (!comm_.Rank()) x0.Write((precond_fname+std::string("-X-")+std::to_string(precond_size)).c_str());
+          if (!comm_.Rank()) geom_precond.Write(precond_fname+std::string("-geom-")+std::to_string(precond_size));
         }
       }
 
@@ -1324,9 +1565,7 @@ namespace sctl {
       BIOp_StokesDxU.SetAccuracy(quad_tol);
       const Long N = BIOp_StokesFxU.Dim(1);
 
-      Real SL_scal = 30.0;
-      Real DL_scal = 1.0;
-      auto MobilityOp = [this,&DL_scal,&SL_scal](Vector<Real>* Ax, const Vector<Real>& x) {
+      auto MobilityOp = [this](Vector<Real>* Ax, const Vector<Real>& x) {
         Vector<Real> Udl, Usl, Kx;
         geom_precond.RigidBodyMotionProj(Kx, x);
 
@@ -1385,8 +1624,8 @@ namespace sctl {
       build_matrix(M, MobilityOp, N);
       //if (!comm_.Rank()) print_cond_num(M);
 
-      Mprecond = M.pinv();
-      if (!comm_.Rank()) Mprecond.Write((std::string("precond/M-precond")+std::to_string(precond_size)).c_str());
+      Mprecond = M.pinv(sctl::machine_eps<Real>()*32);
+      if (!comm_.Rank()) Mprecond.Write((precond_fname+std::string("-M-")+std::to_string(precond_size)).c_str());
 
       BIOp_StokesFxU.template DeleteElemList<SlenderElemList<Real>>();
       BIOp_StokesDxU.template DeleteElemList<SlenderElemList<Real>>();
@@ -1400,15 +1639,15 @@ namespace sctl {
       BIOp_StokesDxU.SetAccuracy(quad_tol);
       const Long N = BIOp_StokesFxU.Dim(1);
 
-      Real SL_scal = 30.0;
-      Real DL_scal = 1.0;
-      auto MobilityOp = [this,&geom,&DL_scal,&SL_scal](Vector<Real>* Ax, const Vector<Real>& x) { // TODO: sqrt scaling
-        Vector<Real> Udl, Usl, Kx;
+      auto MobilityOp = [this,&geom](Vector<Real>* Ax, const Vector<Real>& x_) { // TODO: sqrt scaling
+        Vector<Real> Udl, Usl, Kx, x = x_;
+        BIOp_StokesFxU.InvSqrtScaling(x);
         geom.RigidBodyMotionProj(Kx, x);
 
         BIOp_StokesFxU.ComputePotential(Usl, (x-Kx));
         BIOp_StokesDxU.ComputePotential(Udl, (x-Kx));
         (*Ax) = ApplyPrecond( ((x-Kx)*0.5 + Udl)*DL_scal + Usl*SL_scal + Kx , geom);
+        BIOp_StokesFxU.SqrtScaling(*Ax);
       };
 
       Vector<Real> rhs(N); rhs = 0;
@@ -1421,11 +1660,13 @@ namespace sctl {
       }
       if (Ubg.Dim()) rhs += Ubg;
       rhs = ApplyPrecond(rhs, geom);
+      BIOp_StokesFxU.SqrtScaling(rhs);
 
       Long Ngmres;
       Vector<Real> q;
       ParallelSolver<Real> solver(comm_);
-      solver(&q, MobilityOp, rhs, tol, 200, false, &Ngmres);
+      solver(&q, MobilityOp, rhs, tol, 300, false, &Ngmres);
+      BIOp_StokesFxU.InvSqrtScaling(q);
 
       //Vector<Real> err, Mq;
       //MobilityOp(&Mq, q);
@@ -1466,7 +1707,7 @@ namespace sctl {
 
         Vector<Real> Uc, Omega;
         { // [Uc, Omega] <-- Mobility(geom)
-          Profile::Tic("MobilSolve", &comm_);
+          Profile::Tic("MobilSolve", &comm_, true);
           bool prof_state = Profile::Enable(false);
 
           Vector<Real> X, sigma;
@@ -1529,16 +1770,35 @@ namespace sctl {
       ode_solver(&dY, dt, Y0, fn, -1, time_step_tol, &error_interp, &error_picard);
       update_geom(geom0, dY);
 
+      if (0) { // Print minimum distance in two ring setup
+        Vector<Real> x;
+        geom0.GetElemList().GetNodeCoord(&x, nullptr, nullptr);
+        x = Allgather(x, comm_);
+
+        Vector<Real> min_x(COORD_DIM); min_x = 1e10;
+        for (Long i = 0; i < x.Dim()/COORD_DIM; i++) {
+          for (Long k = 0; k < COORD_DIM; k++) {
+            min_x[k] = std::min<Real>(min_x[k], fabs(x[i*COORD_DIM+k]-0.5));
+          }
+        }
+        if (!comm_.Rank()) {
+          std::cout<<"Min-dist = "<<2*min_x[0]<<'\n';
+          std::cout<<geom0.panel_len;
+          std::cout<<geom0.FourierOrder;
+        }
+      }
+
       if (!comm_.Rank()) std::cout<<"error = "<<error_interp/dt<<"  "<<error_picard/dt<<'\n';
       return std::max<Real>(error_interp, error_picard);
     }
 
     template <class BgFlow> Real AdaptiveTimeStep(RigidBodyList<Real>& geom, Real& dt, const Real T, const BgFlow& bg_flow, const Integer time_step_order, const Real time_step_tol, const Real quad_tol, const Real gmres_tol, const Real geom_tol, const std::string& out_path, Long idx = 0) const {
-      const SDC<Real> ode_solver(std::max<Integer>(1,time_step_order), comm_);
+      const SDC<Real> ode_solver(std::max<Integer>(2,time_step_order), comm_);
       const Real eps = machine_eps<Real>();
 
       Real t = 0;
       while (t < T && dt > eps*T) {
+        Profile::Tic("SDC-TimeStep", &comm_, true);
         RigidBodyList<Real> geom_ = geom;
 
         Vector<Real> U, sigma;
@@ -1547,7 +1807,7 @@ namespace sctl {
           Vector<Real> X;
           geom.GetElemList().GetNodeCoord(&X, nullptr, nullptr);
           const Vector<Real> Ubg = bg_flow.Velocity(X);
-          const Vector<Real> U = ComputeVelocity(geom, Ubg, gmres_tol, quad_tol, &sigma, &Ngmres);
+          U = ComputeVelocity(geom, Ubg, gmres_tol, quad_tol, &sigma, &Ngmres);
           Nunknown = Allgather(sigma, comm_).Dim(); // TODO: do reduction instead
         }
         { // Write output
@@ -1599,7 +1859,12 @@ namespace sctl {
         }
 
         bool accept_solution = (max_err <= time_step_tol*dt);
-        if (!comm_.Rank()) std::cout<<(accept_solution?"Accepted":"Rejected")<<": t0 = "<<t<<"     dt = "<<dt<<"     err = "<<max_err/dt<<"     Ngmres = "<<Ngmres<<"     Nunknown = "<<Nunknown<<'\n';
+        const Long MaxFourierOrder = [geom_]() {
+          Long max_order = 0;
+          for (const auto& Nf : geom_.FourierOrder) max_order = std::max<Long>(max_order, Nf);
+          return max_order;
+        }();
+        if (!comm_.Rank()) std::cout<<(accept_solution?"Accepted":"Rejected")<<": idx = "<<idx<<"     t0 = "<<t<<"     dt = "<<dt<<"     err = "<<max_err/dt<<"     Ngmres = "<<Ngmres<<"     Nunknown = "<<Nunknown<<"     MaxFourierOrder = "<<MaxFourierOrder<<"     min_dist = "<<geom_.GetMinDist()<<'\n';
         if (accept_solution) { // Accept solution
           geom = geom_;
           t = t + dt;
@@ -1613,6 +1878,8 @@ namespace sctl {
           density_function[0].ReInit(sigma.Dim(), sigma.begin(), false);
           geom.RefineAdaptive(density_function, geom_tol);
         }
+        Profile::Toc();
+        Profile::print(&comm_);
       }
       return t;
     }
@@ -1622,11 +1889,19 @@ namespace sctl {
       if (!geom_file.empty()) geom.Read(geom_file);
 
       RigidBodyList<Real> precond_geom(comm, 1, loop_rad, geom_type);
-      if (!precond.empty()) precond_geom.Read(precond); // include loop_rad in filename
+      if (!precond.empty()) {
+        precond_geom.Read(precond, 1); // include loop_rad in filename
+        precond_geom.GetElemList().WriteVTK(out_path + "./Sprecond", Vector<Real>(), comm);
+      }
 
       const BgFlow<Real> bg_flow(comm);
       const Mobility<Real> stokes_mobility(comm, 1.0);
-      if (!precond.empty()) stokes_mobility.BuildPrecond(precond_geom);
+      if (geom_type == RigidBodyList<Real>::Geom::Loop) {
+        stokes_mobility.SetSLScaling(30.0);
+      } else {
+        stokes_mobility.SetSLScaling(1.0);
+      }
+      if (!precond.empty()) stokes_mobility.BuildPrecond(precond_geom, precond);
       stokes_mobility.AdaptiveTimeStep(geom, dt, T, bg_flow, ts_order, time_step_tol, quad_tol, gmres_tol, geom_tol, out_path, start_idx);
     }
 
@@ -1640,7 +1915,7 @@ namespace sctl {
 
         Vector<Real> U, sigma;
         { // Compute U, sigma
-          Profile::Tic("MobilSolve", &comm);
+          Profile::Tic("MobilSolve", &comm, true);
           bool prof_state = Profile::Enable(false);
 
           U = stokes_mobility.ComputeVelocity(geom, Vector<Real>(), gmres_tol, quad_tol, &sigma);
@@ -1701,6 +1976,7 @@ namespace sctl {
     mutable BoundaryIntegralOp<Real,Stokes3D_DxU> BIOp_StokesDxU;
 
     Real gravity_;
+    mutable Real SL_scal, DL_scal;
     mutable Matrix<Real> Mprecond;
     mutable RigidBodyList<Real> geom_precond;
   };
