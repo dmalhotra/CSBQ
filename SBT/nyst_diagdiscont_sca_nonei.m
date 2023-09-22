@@ -49,7 +49,7 @@ N=npan*p;
 s.t = vertcat(pan.t); s.w = vertcat(pan.w);  % concat all nodes for easy access
 inpan = @(t,i) mod(t,L)>=tpan(i) & mod(t,L)<tpan(i+1);  % is param in pan?
 
-if ~isfield(o,'paux'), o.paux=2*p; end    % reasonable amount of oversampling
+if ~isfield(o,'paux'), o.paux=p; end    % no oversampling :)
 % paux = nodes either side (twice this = # aux nodes per target)
 [az aw] = gauss(o.paux);    % discont kernel -> can use plain G-L as aux scheme
 
