@@ -50,11 +50,10 @@ For slender-body numerical implementations in MATLAB, see `SBT/` directory.
 
 
 ### Overview:
-This is a header-only C++ library, and you only need to '#include <csbq.hpp>' in your code.
-It relies on the SCTL library and path to 'sctl.hpp' must be provided.
+This is a header-only C++ library, you only need to `#include <csbq.hpp>` in your code.
+It relies on the [SCTL](https://github.com/dmalhotra/SCTL) library (included as a submodule) and the path to `sctl.hpp` must be provided to the C++ compiler.
 The included Makefile may be used as a template for new projects.
-Everything is within <code>sctl::</code> namespace.
-Demo codes for learning to use the library are provided in 'tutorial/'.
-Precomputed quadrature tables for Laplace and Stokes kernls and some geometry files are provided in 'data/'.
-Test codes used to generate the results in the paper are provided in 'test/', along with SLURM scripts in 'scripts/'.
-
+Everything is contained within `sctl::` namespace.
+Demo codes for learning to use the library are provided in `tutorial/`.
+Precomputed quadrature tables for Laplace and Stokes kernels and some geometry files are provided in `data/`.
+Test codes used to generate the results in the paper are provided in `test/`, along with SLURM scripts in `scripts/`.
