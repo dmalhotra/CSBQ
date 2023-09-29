@@ -1,6 +1,4 @@
-#include <sctl.hpp>
-#include "utils.hpp"
-
+#include <csbq.hpp>
 using namespace sctl;
 
 template <class Real, class KerSL, class KerDL, class KerGrad> void test_greens_identity_torus(const Comm& comm, Real tol, Long Nelem, Long FourierOrder) {
@@ -15,8 +13,23 @@ template <class Real, class KerSL, class KerDL, class KerGrad> void test_greens_
 int main(int argc, char** argv) {
   Comm::MPI_Init(&argc, &argv);
 
-  if (1) { // Comparison with BIEST
-    Comm comm = Comm::World();
+  { // Comparison with BIEST (Table 1)
+    const Comm comm = Comm::World();
+    commandline_option_start(argc, argv, "\
+Laplace and Stokes Green's representation test for a torus with\n\
+radius 1 and thickness 0.5. The relative L-inf norm is reported for\n\
+different mesh resolutions and quadrature error tolerances.\n", comm);
+    Long omp_p = strtol(commandline_option(argc, argv, "-omp", "1" , false, nullptr, comm), nullptr, 10);
+    commandline_option_end(argc, argv);
+    omp_set_num_threads(omp_p);
+
+    if (!comm.Rank()) {
+      std::cout<<"Command:\n";
+      for (Integer i = 0; i < argc; i++) {
+        std::cout<<argv[i]<<' ';
+      }
+      std::cout<<'\n';
+    }
 
     // Laplace                                                                                                   N   T_setup  Setup-rate   T_eval         Error
     test_greens_identity_torus<double, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(comm, 1e-01,  2,  4); //   80    0.0035       22857   0.0006   2.18095e-01

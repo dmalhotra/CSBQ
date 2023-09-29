@@ -3,6 +3,8 @@
 
 #include <sctl.hpp>
 
+#define WRITE_VTK 1
+
 namespace sctl {
 
   template <class ValueType> static Vector<ValueType> Allgather(const Vector<ValueType>& Y_loc, const Comm& comm) {
@@ -214,7 +216,8 @@ namespace sctl {
       if (Mr_) Mr_[0] = Vector<Real>((b-a)*COORD_DIM*COORD_DIM, (Iterator<Real>)Mr_lst.begin() + a*COORD_DIM*COORD_DIM, false);
     }
 
-    void RigidBodyMotionProj(Vector<Real>& u_proj, const Vector<Real>& u) const {
+    void RigidBodyMotionProj(Vector<Real>& u_proj, const Vector<Real>& u) const { // TODO: optimize
+      Profile::Tic("RigidBodyProj", &comm_);
       auto inner_prod = [this](const Vector<Real>& A, const Vector<Real>& B) {
         SCTL_ASSERT(A.Dim() == B.Dim());
         Vector<Real> AB(A.Dim()), IntegralAB;
@@ -291,6 +294,7 @@ namespace sctl {
           }
         }
       }
+      Profile::Toc();
     }
 
     void GetRigidBodyMotion(Vector<Real>& Uc_loc, Vector<Real>& Omega_c_loc, const Vector<Real>& U_loc) const {
@@ -1639,7 +1643,7 @@ namespace sctl {
       BIOp_StokesDxU.SetAccuracy(quad_tol);
       const Long N = BIOp_StokesFxU.Dim(1);
 
-      auto MobilityOp = [this,&geom](Vector<Real>* Ax, const Vector<Real>& x_) { // TODO: sqrt scaling
+      auto MobilityOp = [this,&geom](Vector<Real>* Ax, const Vector<Real>& x_) {
         Vector<Real> Udl, Usl, Kx, x = x_;
         BIOp_StokesFxU.InvSqrtScaling(x);
         geom.RigidBodyMotionProj(Kx, x);
@@ -1796,23 +1800,38 @@ namespace sctl {
       const SDC<Real> ode_solver(std::max<Integer>(2,time_step_order), comm_);
       const Real eps = machine_eps<Real>();
 
+      { // Dry run
+        bool prof_state = Profile::Enable(false);
+        Vector<Real> X, sigma;
+        geom.GetElemList().GetNodeCoord(&X, nullptr, nullptr);
+        const Vector<Real> Ubg = bg_flow.Velocity(X);
+        ComputeVelocity(geom, Ubg, gmres_tol, quad_tol);
+        Profile::Enable(prof_state);
+      }
+
       Real t = 0;
       while (t < T && dt > eps*T) {
-        Profile::Tic("SDC-TimeStep", &comm_, true);
+        Profile::Tic("TimeStep", &comm_, true);
         RigidBodyList<Real> geom_ = geom;
 
         Vector<Real> U, sigma;
         Long Ngmres = 0, Nunknown = 0;
-        { // Compute U, sigma
+        { // Compute U, sigma, Ngmres, Nunknown
           Vector<Real> X;
-          geom.GetElemList().GetNodeCoord(&X, nullptr, nullptr);
+          geom_.GetElemList().GetNodeCoord(&X, nullptr, nullptr);
           const Vector<Real> Ubg = bg_flow.Velocity(X);
-          U = ComputeVelocity(geom, Ubg, gmres_tol, quad_tol, &sigma, &Ngmres);
-          Nunknown = Allgather(sigma, comm_).Dim(); // TODO: do reduction instead
+          U = ComputeVelocity(geom_, Ubg, gmres_tol, quad_tol, &sigma, &Ngmres);
+
+          Nunknown = [this,&sigma]() {
+            StaticArray<Long,2> len{sigma.Dim(),0};
+            comm_.Allreduce(len+0, len+1, 1, Comm::CommOp::SUM);
+            return len[1];
+          }();
         }
-        { // Write output
+        if (WRITE_VTK) [this,&geom_,&U,&sigma,&idx,&out_path]() { // Write output
           RigidBodyList<Real> geom0 = geom_;
           geom0.GetElemList().WriteVTK(out_path + "./S" + std::to_string(idx), sigma, comm_);
+          geom0.GetElemList().WriteVTK(out_path + "./U" + std::to_string(idx),     U, comm_);
           geom0.Write(out_path + "./geom" + std::to_string(idx));
 
           if (1) { // Shift geom0
@@ -1839,19 +1858,21 @@ namespace sctl {
 
             geom0.RigidBodyUpdate(dXc*0.95, Mr);
             geom0.GetElemList().WriteVTK(out_path + "./SS" + std::to_string(idx), sigma, comm_);
+            geom0.GetElemList().WriteVTK(out_path + "./UU" + std::to_string(idx),     U, comm_);
 
             geom0 = geom_;
             geom0.RigidBodyUpdate(dXc, Mr);
             geom0.GetElemList().WriteVTK(out_path + "./SSS" + std::to_string(idx), sigma, comm_);
+            geom0.GetElemList().WriteVTK(out_path + "./UUU" + std::to_string(idx),     U, comm_);
 
             //geom.RigidBodyUpdate(dXc, Mr); // TODO: add this shift correctly
           }
-        }
+        }();
 
         Real max_err = 0;
         if (time_step_order > 1) {
           max_err = TimeStep(geom_, bg_flow, dt, ode_solver, time_step_tol*dt*0.1, quad_tol, gmres_tol);
-        } else { // First order, no adaptivity in time
+        } else { // First order explicit, no adaptivity in time
           Vector<Real> Uc, Omega_c, Mr_lst;
           geom_.GetRigidBodyMotion(Uc, Omega_c, U);
           geom_.RotationMatrix(Mr_lst, Omega_c, dt);
@@ -1864,7 +1885,11 @@ namespace sctl {
           for (const auto& Nf : geom_.FourierOrder) max_order = std::max<Long>(max_order, Nf);
           return max_order;
         }();
-        if (!comm_.Rank()) std::cout<<(accept_solution?"Accepted":"Rejected")<<": idx = "<<idx<<"     t0 = "<<t<<"     dt = "<<dt<<"     err = "<<max_err/dt<<"     Ngmres = "<<Ngmres<<"     Nunknown = "<<Nunknown<<"     MaxFourierOrder = "<<MaxFourierOrder<<"     min_dist = "<<geom_.GetMinDist()<<'\n';
+        if (!comm_.Rank()) {
+          std::cout<<(accept_solution?"Accepted":"Rejected")<<": idx = "<<idx<<"     t0 = "<<t<<"     dt = "<<dt<<"     err = "<<max_err/dt<<"     Ngmres = "<<Ngmres<<"     Nunknown = "<<Nunknown<<"     MaxFourierOrder = "<<MaxFourierOrder;
+          //std::cout<<"     min_dist = "<<geom_.GetMinDist();
+          std::cout<<'\n';
+        }
         if (accept_solution) { // Accept solution
           geom = geom_;
           t = t + dt;
@@ -1889,7 +1914,7 @@ namespace sctl {
       if (!geom_file.empty()) geom.Read(geom_file);
 
       RigidBodyList<Real> precond_geom(comm, 1, loop_rad, geom_type);
-      if (!precond.empty()) {
+      if (WRITE_VTK && !precond.empty()) {
         precond_geom.Read(precond, 1); // include loop_rad in filename
         precond_geom.GetElemList().WriteVTK(out_path + "./Sprecond", Vector<Real>(), comm);
       }

@@ -1,19 +1,16 @@
-#include <sctl.hpp>
-#include "utils.hpp"
-#include "mobility.hpp"
-
+#include <csbq.hpp>
 using namespace sctl;
 
 using RefValueType = long double;
 
-const std::string ref_path = "ref/";
+const std::string ref_path = "vis/";
 
 constexpr bool UNIF_TANGLE = false;
 const Long CubeResolution = 100;
 
 template <Long ScalExp> struct Laplace3D_FDxU_Scal_ {
   static const std::string& Name() {
-    static const std::string name = "Laplace3D-FDxU";
+    static const std::string name = "Laplace3D-FxU"; // use single-layer quadrature, they work for combined field too (not compatible with PVFMM)
     //static const std::string name = ("Laplace3D-"+std::to_string(ScalExp) + "FDxU").c_str();
     return name;
   }
@@ -36,7 +33,7 @@ template <Long ScalExp> struct Laplace3D_FDxU_Scal_ {
 
 template <Long ScalExp> struct Stokes3D_FDxU_Scal_ {
   static const std::string& Name() {
-    static const std::string name = "Stokes3D-FDxU";
+    static const std::string name = "Stokes3D-FxU"; // use single-layer quadrature, they work for combined field too (not compatible with PVFMM)
     //static const std::string name = ("Stokes3D-"+std::to_string(ScalExp) + "FDxU").c_str();
     return name;
   }
@@ -144,6 +141,8 @@ template <class Real, class KerSL, class KerDL, class KerSLDL, class KerM2M=KerS
         for (const auto& a : I0) Iref0.PushBack((double)a);
         if (!comm.Rank()) Iref0.Write((ref_fname+"id").c_str());
       }
+    } else {
+      if (!comm.Rank()) std::cout<<"Using reference solution from "<<ref_fname<<'\n';
     }
     if (!comm.Rank()) {
       for (const auto& a : Uref0) Uref.PushBack((Real)a);
@@ -254,7 +253,7 @@ template <class Real, class KerSL, class KerDL, class KerSLDL, class KerM2M=KerS
   return max_err;
 }
 
-// Deprecated: use src/tangle-adap-geom.cpp
+// Deprecated
 template <class Real> void tangle_adaptive_discretize(const Long Npanel, Real geom_tol) {
   Profile::Enable(true);
   const Comm comm = Comm::World();
@@ -313,14 +312,15 @@ template <class Real> void tangle_adaptive_discretize(const Long Npanel, Real ge
 
   std::ostringstream geom_tol_str;
   geom_tol_str << Npanel << "_" << geom_tol;
-  geom.GetElemList().Write(std::string("./tangle/tangle_")+geom_tol_str.str(), comm);
+  geom.GetElemList().Write(std::string("./data/tangle/tangle_")+geom_tol_str.str(), comm);
 
   Profile::print(&comm);
 }
 
 int main(int argc, char** argv) {
-  Comm::MPI_Init(&argc, &argv);
   using Real = double;
+  Comm::MPI_Init(&argc, &argv);
+  Profile::Enable(true);
 
   #ifdef SCTL_HAVE_PVFMM
   pvfmm::Profile::Enable(true);
@@ -329,20 +329,29 @@ int main(int argc, char** argv) {
   { // Solve BVP
     const Comm comm = Comm::World();
     commandline_option_start(argc, argv, "\
-      Solve the exterior Laplace or Stokes Dirichlet BVP:\n\
-      (1/2 + D + S * SLScaling) sigma = V0, where V0 = 1. \n\
-      Default geometry is a circular torus. The solution on a cube is written to a VTU file.\n", comm);
+Solve the exterior Laplace or Stokes Dirichlet BVP:\n\
+(1/2 + D + S * SLScaling) sigma = V0, where V0 = 1. \n\
+Default geometry is a circular torus. The solution on a cube\n\
+is written to a VTK file in the './vis' folder\n", comm);
     std::string fname = commandline_option(argc, argv, "-geom", "", false, "Input geometry filename", comm);
     std::string ker   = commandline_option(argc, argv, "-ker" , "Stokes", false, "Stokes/Laplace"         , comm);
     bool conv = to_bool(commandline_option(argc, argv, "-conv" , "false", false, "Run convergence tests", comm));
 
     double thickness = strtod(commandline_option(argc, argv, "-r"        , "1e-03", false, "Thickness of default geometry" , comm), nullptr);
-    double tol       = strtod(commandline_option(argc, argv, "-tol"      , "1e-10", false, ""                              , comm), nullptr);
-    double gmres_tol = strtod(commandline_option(argc, argv, "-gmres_tol", "1e-08", false, ""                              , comm), nullptr);
-    double SLScaling = strtod(commandline_option(argc, argv, "-scale", "1e3", false, "Single-layer operator scaling factor", comm), nullptr);
-    Long omp_p     = strtol(commandline_option(argc, argv, "-omp"      , "1"   , false, nullptr, comm), nullptr, 10);
-    omp_set_num_threads(omp_p);
+    double tol       = strtod(commandline_option(argc, argv, "-tol"      , "1e-10", false, "Quadrature accuracy"           , comm), nullptr);
+    double gmres_tol = strtod(commandline_option(argc, argv, "-gmres_tol", "1e-08", false, "GMRES tolerance"               , comm), nullptr);
+    double SLScaling = strtod(commandline_option(argc, argv, "-scale"    , "1e3"  , false, "Single-layer operator scaling factor", comm), nullptr);
+    Long omp_p       = strtol(commandline_option(argc, argv, "-omp"      , "1"    , false, "Number of OpenMP threads to use", comm), nullptr, 10);
     commandline_option_end(argc, argv);
+    omp_set_num_threads(omp_p);
+
+    if (!comm.Rank()) {
+      std::cout<<"Command:\n";
+      for (Integer i = 0; i < argc; i++) {
+        std::cout<<argv[i]<<' ';
+      }
+      std::cout<<'\n';
+    }
 
     if (conv == false) {
       SlenderElemList<Real> elem_lst0;
@@ -363,100 +372,37 @@ int main(int argc, char** argv) {
       } else {
         if (!comm.Rank()) std::cout<<"Unknown kernel "<<ker<<'\n';
       }
-
     } else { // convergence tests
-      if (0) { // Tangle - Laplace
+      if (1) { // Tangle - Laplace (Table 3)
         constexpr Long ScalExp = 5;
-        Profile::Enable(true);
+        const Real SL_scal = pow<ScalExp>((Real)2);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_1e-12", "Laplace", 1e+01, 1e+01, SL_scal, comm); // compute reference solution
 
-        auto param_search = [&comm](const std::string& fname, const std::string& label) {
-          Real err0 = bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>(fname, label, 1e-15, 1e-15, 100, comm);
-          Integer qtol[2] = {0,15};
-          Integer gtol[2] = {0,15};
-          while (qtol[0] < qtol[1]) {
-            if (!comm.Rank()) std::cout<<"qtol = "<<qtol[0]<<' '<<qtol[1]<<'\n';
-            Integer q0 = (qtol[0]+qtol[1])/2;
-            Real err = bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>(fname, label, pow<Real>(0.1,q0), 1e-15, 100, comm);
-            if (err > 2*err0) {
-              qtol[0] = q0+1;
-            } else {
-              qtol[1] = q0;
-            }
-          }
-          while (gtol[0] < gtol[1]) {
-            if (!comm.Rank()) std::cout<<"gtol = "<<gtol[0]<<' '<<gtol[1]<<'\n';
-            Integer g0 = (gtol[0]+gtol[1])/2;
-            Real err = bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>(fname, label, 1e-15, pow<Real>(0.1,g0), 100, comm);
-            if (err > 2*err0) {
-              gtol[0] = g0+1;
-            } else {
-              gtol[1] = g0;
-            }
-          }
-          Real err = bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>(fname, label, pow<Real>(0.1,qtol[0]), pow<Real>(0.1,gtol[0]), 100, comm);
-          if (!comm.Rank()) std::cout<<"Param = "<<err0<<' '<<err<<' '<<qtol[0]<<' '<<gtol[0]<<'\n';
-        };
-
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<-5>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<-5>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<-3>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<-3>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<-1>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<-1>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 1>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 1>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 3>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 3>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 4>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 4>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 5>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 5>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 6>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 6>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 7>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 7>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 9>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 9>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<11>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<11>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<13>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<13>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<15>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<15>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<17>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<17>((Real)2), comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<19>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<19>((Real)2), comm);
-
-        //const Real SL_scal = pow<ScalExp>((Real)2);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_1e-12", "Laplace", 1e+01, 1e+01, SL_scal, comm); // compute reference solution
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_3e-01", "Laplace", 1e-02, 1e-02, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_1e-01", "Laplace", 1e-02, 1e-02, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_3e-02", "Laplace", 1e-03, 1e-02, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_1e-02", "Laplace", 1e-03, 1e-02, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_3e-03", "Laplace", 1e-03, 1e-02, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_1e-03", "Laplace", 1e-04, 1e-04, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_3e-04", "Laplace", 1e-06, 1e-05, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_1e-04", "Laplace", 1e-06, 1e-05, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_3e-05", "Laplace", 1e-07, 1e-06, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_1e-05", "Laplace", 1e-07, 1e-07, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_3e-06", "Laplace", 1e-08, 1e-07, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_1e-06", "Laplace", 1e-09, 1e-08, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_1e-07", "Laplace", 1e-09, 1e-09, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_3e-08", "Laplace", 1e-10, 1e-10, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_1e-08", "Laplace", 1e-10, 1e-10, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_3e-09", "Laplace", 1e-10, 1e-10, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_1e-09", "Laplace", 1e-11, 1e-11, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_3e-10", "Laplace", 1e-13, 1e-11, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_1e-10", "Laplace", 1e-13, 1e-11, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_3e-11", "Laplace", 1e-14, 1e-12, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_1e-11", "Laplace", 1e-14, 1e-12, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_3e-12", "Laplace", 1e-14, 1e-13, SL_scal, comm);
-        //bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("tangle/tangle_1e-12", "Laplace", 1e-14, 1e-13, SL_scal, comm);
-
-        //         geom   gmres_tol      tol       N     Nelem Max-FourierOrder        alpha   iter    MaxError       L2-error    T_setup   setup-rate    T_solve    T_setup    T_solve
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      3.1e-02    200     5.6e-06        4.8e-08     1.4057   1.6504e+04   104.5540     0.1193     5.9556
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      1.3e-01    115     1.4e-06        1.3e-08     1.4104   1.6449e+04    60.0337     0.1194     3.3694
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      5.0e-01     63     3.5e-07        2.9e-09     1.4101   1.6453e+04    32.7515     0.1188     1.8219
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      2.0e+00     35     7.7e-08        1.4e-09     1.4084   1.6473e+04    18.1157     0.1188     1.0149
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      8.0e+00     21     2.6e-08        6.8e-10     1.4090   1.6466e+04    10.8710     0.1189     0.6074
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      1.6e+01     21     2.0e-08        6.1e-10     1.4068   1.6491e+04    10.8614     0.1190     0.6072
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      3.2e+01     22     1.2e-08        5.8e-10     1.4041   1.6523e+04    11.4197     0.1180     0.6310
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      6.4e+01     23     1.3e-08        8.6e-10     1.4120   1.6431e+04    11.9160     0.1187     0.6661
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      1.3e+02     26     1.5e-08        8.1e-10     1.4059   1.6502e+04    13.4956     0.1183     0.7486
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      5.1e+02     36     1.9e-08        6.0e-10     1.4112   1.6440e+04    18.6854     0.1183     1.0429
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      2.0e+03     46     1.3e-08        4.5e-10     1.4103   1.6450e+04    23.9419     0.1187     1.3306
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      8.2e+03     53     1.1e-08        4.3e-10     1.4066   1.6494e+04    27.4460     0.1184     1.5423
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      3.3e+04     55     1.4e-08        4.3e-10     1.4091   1.6464e+04    28.5808     0.1187     1.6057
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      1.3e+05     55     1.5e-08        4.6e-10     1.4074   1.6484e+04    28.5196     0.1184     1.8459
-        // tangle_3e-07       1e-08    1e-09   23200       204               24      5.2e+05     56     1.0e-08        3.6e-10     1.4207   1.6330e+04    29.0958     0.1183     1.6181
-
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_3e-01", "Laplace", 1e-02, 1e-02, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_1e-01", "Laplace", 1e-02, 1e-02, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_3e-02", "Laplace", 1e-03, 1e-02, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_1e-02", "Laplace", 1e-03, 1e-02, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_3e-03", "Laplace", 1e-03, 1e-02, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_1e-03", "Laplace", 1e-04, 1e-04, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_3e-04", "Laplace", 1e-06, 1e-05, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_1e-04", "Laplace", 1e-06, 1e-05, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_3e-05", "Laplace", 1e-07, 1e-06, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_1e-05", "Laplace", 1e-07, 1e-07, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_3e-06", "Laplace", 1e-08, 1e-07, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_1e-06", "Laplace", 1e-09, 1e-08, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_1e-07", "Laplace", 1e-09, 1e-09, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_3e-08", "Laplace", 1e-10, 1e-10, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_1e-08", "Laplace", 1e-10, 1e-10, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_3e-09", "Laplace", 1e-10, 1e-10, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_1e-09", "Laplace", 1e-11, 1e-11, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_3e-10", "Laplace", 1e-13, 1e-11, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_1e-10", "Laplace", 1e-13, 1e-11, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_3e-11", "Laplace", 1e-14, 1e-12, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_1e-11", "Laplace", 1e-14, 1e-12, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_3e-12", "Laplace", 1e-14, 1e-13, SL_scal, comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<ScalExp>>("./data/tangle/tangle_1e-12", "Laplace", 1e-14, 1e-13, SL_scal, comm);
+        { // Result
         //         geom   gmres_tol      tol       N     Nelem Max-FourierOrder        alpha   iter    MaxError       L2-error    T_setup   setup-rate    T_solve    T_setup    T_solve
         // tangle_3e-01       1e-02    1e-02     640        16                4      3.2e+01      4     8.3e-02        1.3e-02     0.0167   3.8323e+04     0.0014     0.0062     0.0059
         // tangle_1e-01       1e-02    1e-02     640        16                4      3.2e+01      4     8.3e-02        1.3e-02     0.0167   3.8323e+04     0.0013     0.0054     0.0054
@@ -507,99 +453,72 @@ int main(int argc, char** argv) {
         // tangle_1e-11       1e-12    1e-14  160400       893               48      3.2e+01     33     6.8e-11        1.9e-13    70.9052   2.2620e+03   353.6618    10.5377    96.8143
         // tangle_3e-12       1e-13    1e-14  219000      1215               52      3.2e+01     35     1.2e-10        2.8e-13   102.4772   2.1370e+03   487.8219    10.8642    97.1319
         // tangle_1e-12       1e-13    1e-14  294080      1604               56      3.2e+01     35     1.6e-10        4.2e-13   144.7232   2.0320e+03   555.6083    18.8379    95.6947
-      }
-      if (0) { // Tangle - Stokes
-        constexpr Long ScalExp = 6;
-        Profile::Enable(true);
+        }
 
-        auto param_search = [&comm](const std::string& fname, const std::string& label) {
-          Real err0 = bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>>(fname, label, 1e-15, 1e-15, 100, comm);
-          Integer qtol[2] = {0,15};
-          Integer gtol[2] = {0,15};
-          while (qtol[0] < qtol[1]) {
-            if (!comm.Rank()) std::cout<<"qtol = "<<qtol[0]<<' '<<qtol[1]<<'\n';
-            Integer q0 = (qtol[0]+qtol[1])/2;
-            Real err = bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>>(fname, label, pow<Real>(0.1,q0), 1e-15, 100, comm);
-            if (err > 2*err0) {
-              qtol[0] = q0+1;
-            } else {
-              qtol[1] = q0;
-            }
-          }
-          while (gtol[0] < gtol[1]) {
-            if (!comm.Rank()) std::cout<<"gtol = "<<gtol[0]<<' '<<gtol[1]<<'\n';
-            Integer g0 = (gtol[0]+gtol[1])/2;
-            Real err = bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>>(fname, label, 1e-15, pow<Real>(0.1,g0), 100, comm);
-            if (err > 2*err0) {
-              gtol[0] = g0+1;
-            } else {
-              gtol[1] = g0;
-            }
-          }
-          Real err = bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>>(fname, label, pow<Real>(0.1,qtol[0]), pow<Real>(0.1,gtol[0]), 100, comm);
-          if (!comm.Rank()) std::cout<<"Param = "<<err0<<' '<<err<<' '<<qtol[0]<<' '<<gtol[0]<<'\n';
-        };
-
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<-5>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real)-5), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<-3>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real)-3), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<-1>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real)-1), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 1>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real) 1), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 3>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real) 3), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 4>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real) 4), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 5>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real) 5), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 6>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real) 6), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 7>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real) 7), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 9>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real) 9), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<11>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real)11), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<13>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real)13), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<15>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real)15), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<17>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real)17), comm);
-        //bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<19>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<ScalExp>((Real)19), comm);
-
-        const Real SL_scal = pow<ScalExp>((Real)2);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-12", "Stokes", 1e+01, 1e+01, SL_scal, comm); // compute reference solution
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_3e-01", "Stokes", 1e-03, 1e-02, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-01", "Stokes", 1e-03, 1e-02, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_3e-02", "Stokes", 1e-03, 1e-02, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-02", "Stokes", 1e-03, 1e-02, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_3e-03", "Stokes", 1e-03, 1e-02, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-03", "Stokes", 1e-04, 1e-03, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_3e-04", "Stokes", 1e-05, 1e-04, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-04", "Stokes", 1e-05, 1e-05, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_3e-05", "Stokes", 1e-06, 1e-05, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-05", "Stokes", 1e-07, 1e-06, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_3e-06", "Stokes", 1e-07, 1e-07, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-06", "Stokes", 1e-07, 1e-07, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_3e-07", "Stokes", 1e-08, 1e-07, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_3e-08", "Stokes", 1e-09, 1e-08, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-08", "Stokes", 1e-10, 1e-09, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_3e-09", "Stokes", 1e-10, 1e-10, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-09", "Stokes", 1e-11, 1e-10, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_3e-10", "Stokes", 1e-11, 1e-10, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-10", "Stokes", 1e-12, 1e-10, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_3e-11", "Stokes", 1e-13, 1e-11, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-11", "Stokes", 1e-13, 1e-11, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_3e-12", "Stokes", 1e-14, 1e-12, SL_scal, comm);
-        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("tangle/tangle_1e-12", "Stokes", 1e-14, 1e-12, SL_scal, comm);
-
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<-5>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<-5>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<-3>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<-3>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<-1>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<-1>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 1>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 1>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 3>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 3>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 4>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 4>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 5>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 5>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 6>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 6>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 7>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 7>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal< 9>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow< 9>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<11>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<11>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<13>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<13>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<15>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<15>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<17>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<17>((Real)2), comm);
+        bvp_solve_conv<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FDxU_Scal<19>>("./data/tangle/tangle_3e-07", "Laplace", 1e-09, 1e-08, pow<19>((Real)2), comm);
+        { // Result
         //         geom   gmres_tol      tol       N     Nelem Max-FourierOrder        alpha   iter    MaxError       L2-error    T_setup   setup-rate    T_solve    T_setup    T_solve
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      3.1e-02    200     3.6e-04        2.6e-05     3.6332   2.2724e+04   419.0546     0.3170    20.1481
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      1.3e-01    200     1.6e-05        5.6e-07     3.6173   2.2824e+04   418.8950     0.3197    20.2051
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      5.0e-01    189     8.6e-07        1.0e-08     3.6260   2.2769e+04   395.6605     0.3155    19.0964
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      2.0e+00     95     2.2e-07        2.7e-09     3.6034   2.2912e+04   198.0879     0.3522     9.8020
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      8.0e+00     49     5.9e-08        1.1e-09     3.6001   2.2933e+04   101.7530     0.3165     4.7676
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      1.6e+01     38     4.5e-08        1.1e-09     3.6062   2.2894e+04    78.8655     0.3179     3.7653
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      3.2e+01     38     4.6e-08        1.2e-09     3.6175   2.2822e+04    78.8716     0.3174     3.7403
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      6.4e+01     38     4.5e-08        1.2e-09     3.6056   2.2898e+04    78.8662     0.3187     3.7590
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      1.3e+02     38     4.4e-08        1.3e-09     3.6042   2.2907e+04    78.8637     0.3174     3.6804
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      5.1e+02     46     4.3e-08        9.3e-10     3.6064   2.2893e+04    95.5167     0.3169     4.5353
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      2.0e+03     63     4.0e-08        6.6e-10     3.6116   2.2860e+04   130.9461     0.3174     6.1158
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      8.2e+03     94     4.3e-08        4.9e-10     3.6005   2.2930e+04   195.8292     0.3181     9.2162
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      3.3e+04    143     7.7e-08        4.3e-10     3.6220   2.2794e+04   298.9685     0.3165    14.5431
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      1.3e+05    200     1.8e-07        5.0e-10     3.6171   2.2825e+04   418.8483     0.3166    20.1264
-        // tangle_1e-07       1e-08    1e-09   82560       227               24      5.2e+05    200     6.5e-07        2.0e-09     3.6103   2.2868e+04   418.9345     0.3182    20.1452
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      3.1e-02    200     5.6e-06        4.8e-08     1.4057   1.6504e+04   104.5540     0.1193     5.9556
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      1.3e-01    115     1.4e-06        1.3e-08     1.4104   1.6449e+04    60.0337     0.1194     3.3694
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      5.0e-01     63     3.5e-07        2.9e-09     1.4101   1.6453e+04    32.7515     0.1188     1.8219
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      2.0e+00     35     7.7e-08        1.4e-09     1.4084   1.6473e+04    18.1157     0.1188     1.0149
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      8.0e+00     21     2.6e-08        6.8e-10     1.4090   1.6466e+04    10.8710     0.1189     0.6074
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      1.6e+01     21     2.0e-08        6.1e-10     1.4068   1.6491e+04    10.8614     0.1190     0.6072
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      3.2e+01     22     1.2e-08        5.8e-10     1.4041   1.6523e+04    11.4197     0.1180     0.6310
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      6.4e+01     23     1.3e-08        8.6e-10     1.4120   1.6431e+04    11.9160     0.1187     0.6661
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      1.3e+02     26     1.5e-08        8.1e-10     1.4059   1.6502e+04    13.4956     0.1183     0.7486
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      5.1e+02     36     1.9e-08        6.0e-10     1.4112   1.6440e+04    18.6854     0.1183     1.0429
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      2.0e+03     46     1.3e-08        4.5e-10     1.4103   1.6450e+04    23.9419     0.1187     1.3306
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      8.2e+03     53     1.1e-08        4.3e-10     1.4066   1.6494e+04    27.4460     0.1184     1.5423
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      3.3e+04     55     1.4e-08        4.3e-10     1.4091   1.6464e+04    28.5808     0.1187     1.6057
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      1.3e+05     55     1.5e-08        4.6e-10     1.4074   1.6484e+04    28.5196     0.1184     1.8459
+        // tangle_3e-07       1e-08    1e-09   23200       204               24      5.2e+05     56     1.0e-08        3.6e-10     1.4207   1.6330e+04    29.0958     0.1183     1.6181
+        }
+      }
+      if (1) { // Tangle - Stokes (Table 4)
+        constexpr Long ScalExp = 6;
+        const Real SL_scal = pow<ScalExp>((Real)2);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-12", "Stokes", 1e+01, 1e+01, SL_scal, comm); // compute reference solution
 
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_3e-01", "Stokes", 1e-03, 1e-02, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-01", "Stokes", 1e-03, 1e-02, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_3e-02", "Stokes", 1e-03, 1e-02, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-02", "Stokes", 1e-03, 1e-02, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_3e-03", "Stokes", 1e-03, 1e-02, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-03", "Stokes", 1e-04, 1e-03, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_3e-04", "Stokes", 1e-05, 1e-04, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-04", "Stokes", 1e-05, 1e-05, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_3e-05", "Stokes", 1e-06, 1e-05, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-05", "Stokes", 1e-07, 1e-06, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_3e-06", "Stokes", 1e-07, 1e-07, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-06", "Stokes", 1e-07, 1e-07, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_3e-07", "Stokes", 1e-08, 1e-07, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_3e-08", "Stokes", 1e-09, 1e-08, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-08", "Stokes", 1e-10, 1e-09, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_3e-09", "Stokes", 1e-10, 1e-10, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-09", "Stokes", 1e-11, 1e-10, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_3e-10", "Stokes", 1e-11, 1e-10, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-10", "Stokes", 1e-12, 1e-10, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_3e-11", "Stokes", 1e-13, 1e-11, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-11", "Stokes", 1e-13, 1e-11, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_3e-12", "Stokes", 1e-14, 1e-12, SL_scal, comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-12", "Stokes", 1e-14, 1e-12, SL_scal, comm);
+        { // Result
         //         geom   gmres_tol      tol       N     Nelem Max-FourierOrder        alpha   iter    MaxError       L2-error    T_setup   setup-rate    T_solve    T_setup    T_solve
         // tangle_3e-01       1e-02    1e-03    1920        16                4      6.4e+01      6     7.6e-02        2.3e-03     0.0432   4.4444e+04     0.0070     0.0101     0.0097
         // tangle_1e-01       1e-02    1e-03    1920        16                4      6.4e+01      6     7.6e-02        2.3e-03     0.0430   4.4651e+04     0.0070     0.0096     0.0087
@@ -650,21 +569,46 @@ int main(int argc, char** argv) {
         // tangle_1e-11       1e-11    1e-13  481200       893               48      6.4e+01     54     1.4e-10        1.5e-12   167.5552   2.8720e+03  1818.0844    30.2350   387.2485
         // tangle_3e-12       1e-12    1e-14  657000      1215               52      6.4e+01     59     1.4e-10        2.7e-13   268.6389   2.4457e+03  3500.9450    39.6764   826.6070
         // tangle_1e-12       1e-12    1e-14  882240      1604               56      6.4e+01     59     2.2e-10        3.2e-13   379.5377   2.3245e+03  4455.5450    75.8798  1034.5002
+        }
+
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<-5>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<-5>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<-3>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<-3>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<-1>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<-1>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 1>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow< 1>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 3>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow< 3>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 4>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow< 4>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 5>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow< 5>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 6>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow< 6>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 7>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow< 7>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 9>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow< 9>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<11>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<11>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<13>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<13>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<15>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<15>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<17>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<17>((Real)2), comm);
+        bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<19>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/tangle/tangle_1e-07", "Stokes", 1e-09, 1e-08, pow<19>((Real)2), comm);
+        { // Result
+        //         geom   gmres_tol      tol       N     Nelem Max-FourierOrder        alpha   iter    MaxError       L2-error    T_setup   setup-rate    T_solve    T_setup    T_solve
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      3.1e-02    200     3.6e-04        2.6e-05     3.6332   2.2724e+04   419.0546     0.3170    20.1481
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      1.3e-01    200     1.6e-05        5.6e-07     3.6173   2.2824e+04   418.8950     0.3197    20.2051
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      5.0e-01    189     8.6e-07        1.0e-08     3.6260   2.2769e+04   395.6605     0.3155    19.0964
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      2.0e+00     95     2.2e-07        2.7e-09     3.6034   2.2912e+04   198.0879     0.3522     9.8020
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      8.0e+00     49     5.9e-08        1.1e-09     3.6001   2.2933e+04   101.7530     0.3165     4.7676
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      1.6e+01     38     4.5e-08        1.1e-09     3.6062   2.2894e+04    78.8655     0.3179     3.7653
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      3.2e+01     38     4.6e-08        1.2e-09     3.6175   2.2822e+04    78.8716     0.3174     3.7403
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      6.4e+01     38     4.5e-08        1.2e-09     3.6056   2.2898e+04    78.8662     0.3187     3.7590
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      1.3e+02     38     4.4e-08        1.3e-09     3.6042   2.2907e+04    78.8637     0.3174     3.6804
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      5.1e+02     46     4.3e-08        9.3e-10     3.6064   2.2893e+04    95.5167     0.3169     4.5353
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      2.0e+03     63     4.0e-08        6.6e-10     3.6116   2.2860e+04   130.9461     0.3174     6.1158
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      8.2e+03     94     4.3e-08        4.9e-10     3.6005   2.2930e+04   195.8292     0.3181     9.2162
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      3.3e+04    143     7.7e-08        4.3e-10     3.6220   2.2794e+04   298.9685     0.3165    14.5431
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      1.3e+05    200     1.8e-07        5.0e-10     3.6171   2.2825e+04   418.8483     0.3166    20.1264
+        // tangle_1e-07       1e-08    1e-09   82560       227               24      5.2e+05    200     6.5e-07        2.0e-09     3.6103   2.2868e+04   418.9345     0.3182    20.1452
+        }
       }
-      if (1) { // Close-to-touching - Stokes
+      if (1) { // Close-to-touching - Stokes (Table 5)
         constexpr Long ScalExp = 1;
-        Profile::Enable(true);
-
-        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<-3>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow<ScalExp>((Real)-3), comm); // GMREs-iter = 88, Err = 6.05006e-07
-        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<-2>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow<ScalExp>((Real)-2), comm); // GMREs-iter = 65, Err = 3.11569e-07
-        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<-1>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow<ScalExp>((Real)-1), comm); // GMREs-iter = 52, Err = 1.53957e-07
-        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 0>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow<ScalExp>((Real) 0), comm); // GMREs-iter = 40, Err = 8.02818e-08
-        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 1>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow<ScalExp>((Real) 1), comm); // GMREs-iter = 35, Err = 4.27814e-08
-        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 2>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow<ScalExp>((Real) 2), comm); // GMREs-iter = 37, Err = 3.08961e-08
-        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 3>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow<ScalExp>((Real) 3), comm); // GMREs-iter = 46, Err = 2.20968e-08
-        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 4>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow<ScalExp>((Real) 4), comm); // GMREs-iter = 58, Err = 3.60305e-08
-
         const Real SL_scal = pow<ScalExp>((Real)2);
+
         bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-02, 1e-01, SL_scal, comm);
         bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-03, 1e-02, SL_scal, comm);
         bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-04, 1e-03, SL_scal, comm);
@@ -677,7 +621,7 @@ int main(int argc, char** argv) {
         bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-12, 1e-10, SL_scal, comm);
         bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-13, 1e-11, SL_scal, comm);
         bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<ScalExp>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-14, 1e-12, SL_scal, comm);
-
+        { // Result
         //      N  gmres_tol      tol      iter    MaxError       L2-error    T_setup   setup-rate    T_solve    T_setup    T_solve
         //  64560      1e-01    1e-02         2     1.3e-01        3.4e-02     5.8751        10989     2.0165     0.9595     0.2651
         //  64560      1e-02    1e-03         4     2.0e-02        3.1e-03     6.7928         9504     4.1026     1.0957     0.5388
@@ -691,6 +635,16 @@ int main(int argc, char** argv) {
         //  64560      1e-10    1e-12        45     3.5e-10        1.7e-11    32.3967         1993    82.2548     3.3874     9.9720
         //  64560      1e-11    1e-13        49     2.8e-11        1.6e-12    39.5530         1632    95.5994     3.7386    11.5925
         //  64560      1e-12    1e-14        52     6.7e-12        1.9e-13    47.5180         1359   108.0743     4.0715    12.2181
+        }
+
+        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<-3>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow<-3>((Real)2), comm); // GMREs-iter = 88, Err = 6.05006e-07
+        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<-2>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow<-2>((Real)2), comm); // GMREs-iter = 65, Err = 3.11569e-07
+        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal<-1>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow<-1>((Real)2), comm); // GMREs-iter = 52, Err = 1.53957e-07
+        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 0>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow< 0>((Real)2), comm); // GMREs-iter = 40, Err = 8.02818e-08
+        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 1>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow< 1>((Real)2), comm); // GMREs-iter = 35, Err = 4.27814e-08
+        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 2>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow< 2>((Real)2), comm); // GMREs-iter = 37, Err = 3.08961e-08
+        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 3>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow< 3>((Real)2), comm); // GMREs-iter = 46, Err = 2.20968e-08
+        //// bvp_solve_conv<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FDxU_Scal< 4>, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>("./data/close-to-touching.geom", "Stokes-close-touching", 1e-09, 1e-08, pow< 4>((Real)2), comm); // GMREs-iter = 58, Err = 3.60305e-08
       }
     }
   }

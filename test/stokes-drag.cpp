@@ -1,6 +1,4 @@
-#include "utils.hpp"
-#include "sctl.hpp"
-
+#include <csbq.hpp>
 using namespace sctl;
 
 template <class Real> void test(const Comm& comm, const std::string fname, const Real Ux, const Real Uy, const Real Uz, const Real gmres_tol, const Real quad_tol, const Real Rmaj, const Real Rmin, const Real eps, const Real SL_scal) {
@@ -55,20 +53,21 @@ template <class Real> void test(const Comm& comm, const std::string fname, const
   ParallelSolver<Real> solver(comm);
   solver(&q, BIOp, U, gmres_tol, 100);
 
-  auto SurfIntegral = [](Vector<Real>& IntegralF, const Vector<Real>& F_cheb, const SlenderElemList<Real>& elem_lst) {
+  auto SurfIntegral = [&comm](const Vector<Real>& F_cheb, const SlenderElemList<Real>& elem_lst) {
     Vector<Long> cnt, dsp;
     Vector<Real> X, Xn, wts, dist_far, F;
     elem_lst.GetFarFieldNodes(X, Xn, wts, dist_far, cnt, (Real)1);
+    elem_lst.GetFarFieldDensity(F, F_cheb);
+    comm.PartitionN(F, (comm.Rank()==0?1:0));
+    comm.PartitionN(wts, (comm.Rank()==0?1:0));
+    comm.PartitionN(cnt, (comm.Rank()==0?1:0));
+    if (!wts.Dim()) return Vector<Real>();
+
     dsp.ReInit(cnt.Dim()); dsp = 0;
     omp_par::scan(cnt.begin(), dsp.begin(), cnt.Dim());
-    elem_lst.GetFarFieldDensity(F, F_cheb);
-    if (!wts.Dim()) {
-      IntegralF.ReInit(0);
-      return;
-    }
 
     const Integer dof = F.Dim() / wts.Dim();
-    IntegralF.ReInit(dof); IntegralF = 0;
+    Vector<Real> IntegralF(dof); IntegralF = 0;
     for (Long elem = 0; elem < cnt.Dim(); elem++) {
       for (Long i = 0; i < cnt[elem]; i++) {
         for(Long k = 0; k < dof; k++) {
@@ -76,25 +75,15 @@ template <class Real> void test(const Comm& comm, const std::string fname, const
         }
       }
     }
-    // TODO: allreduce
+    return IntegralF;
   };
-  Vector<Real> F;
-  SurfIntegral(F, q*SL_scal, elem_lst0);
-  std::cout<<"Fx = "<<(QuadReal)F[0]<<'\n';
-  std::cout<<"Fy = "<<(QuadReal)F[1]<<'\n';
-  std::cout<<"Fz = "<<(QuadReal)F[2]<<'\n';
-
-  //if (std::is_same<Real,long double>::value) { /////////////////////////////////////////////////////////////////////////////////////
-  //  q.Write("q-ref.mat");
-  //} else {
-  //  Vector<long double> q0;
-  //  q0.Read("q-ref.mat");
-  //  SCTL_ASSERT(q0.Dim() == q.Dim());
-
-  //  elem_lst0.WriteVTK("vis/q", q, comm);
-  //  for (Long i = 0; i < q.Dim(); i++) q[i] -= (Real)q0[i];
-  //  elem_lst0.WriteVTK("vis/q-err", q, comm);
-  //}
+  Vector<Real> F = SurfIntegral(q*SL_scal, elem_lst0);
+  if (!comm.Rank()) {
+    std::cout<<std::setprecision(14);
+    std::cout<<"Fx = "<<F[0]<<'\n';
+    std::cout<<"Fy = "<<F[1]<<'\n';
+    std::cout<<"Fz = "<<F[2]<<'\n';
+  }
 }
 
 int main(int argc, char** argv) {
@@ -107,8 +96,10 @@ int main(int argc, char** argv) {
     using Real = double;
 
     Profile::Enable(true);
-    Comm comm = Comm::Self();
-    commandline_option_start(argc, argv, nullptr, comm);
+    Comm comm = Comm::World();
+    commandline_option_start(argc, argv, "\
+Solve the exterior Stokes flow for a rigid ring with a given\n\
+translation velocity (Ux,Uy,Uz) and return the total drag on the ring.\n", comm);
     std::string fname = commandline_option(argc, argv, "-fname", "", false, nullptr, comm);
     Real gmres_tol = strtod(commandline_option(argc, argv, "-gmres_tol", "1e-20", false, nullptr, comm), nullptr);
     Real quad_tol = strtod(commandline_option(argc, argv, "-quad_tol", "1e-20", false, nullptr, comm), nullptr);
@@ -118,16 +109,19 @@ int main(int argc, char** argv) {
     Real Rmaj = strtod(commandline_option(argc, argv, "-Rmaj", "1.0", false, nullptr, comm), nullptr);
     Real Rmin = strtod(commandline_option(argc, argv, "-Rmin", "1.0", false, nullptr, comm), nullptr);
     Real eps = strtod(commandline_option(argc, argv, "-eps", "1e-3", false, nullptr, comm), nullptr);
+    Long omp_p   = strtol(commandline_option(argc, argv, "-omp"   , "1"    , false, nullptr, comm), nullptr, 10);
     commandline_option_end(argc, argv);
+    omp_set_num_threads(omp_p);
+
+    if (!comm.Rank()) {
+      std::cout<<"Command:\n";
+      for (Integer i = 0; i < argc; i++) {
+        std::cout<<argv[i]<<' ';
+      }
+      std::cout<<'\n';
+    }
 
     test<Real>(comm, fname, Ux, Uy, Uz, gmres_tol, quad_tol, Rmaj, Rmin, eps, 1.0/eps);
-
-    //for (Integer i = 5; i <= 5; i++) {
-    //  eps = pow<Real>((Real)0.1,i);
-    //  test<Real>(comm, fname, Ux, Uy, Uz, gmres_tol, quad_tol, Rmaj, Rmin, eps, 10./eps);
-    //  test<Real>(comm, fname, Ux, Uy, Uz, gmres_tol, quad_tol, Rmaj, Rmin, eps, 1.0/eps);
-    //  test<Real>(comm, fname, Ux, Uy, Uz, gmres_tol, quad_tol, Rmaj, Rmin, eps, 0.1/eps);
-    //}
   }
 
   Comm::MPI_Finalize();

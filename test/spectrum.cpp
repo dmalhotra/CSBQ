@@ -1,6 +1,4 @@
-#include "utils.hpp"
-#include "sctl.hpp"
-
+#include <csbq.hpp>
 using namespace sctl;
 
 #define GEOM_CYLINDER 1
@@ -69,8 +67,24 @@ template <class Real> void test_laplace(const Comm& comm, Real quad_eps, Real ra
   } else if (geom == 2) { // torus
     Vector<Real> panel_len(4*FOURIER_ORDER); panel_len = 1/(Real)(4*FOURIER_ORDER);
     Vector<Long> FourierOrder(4*FOURIER_ORDER); FourierOrder = 2*FOURIER_ORDER+4;
-    GeomEllipse<Real>(elem_lst_src, panel_len, FourierOrder, comm, (Real)1, (Real)1, radius*2);
-    GeomEllipse<Real>(elem_lst_trg, panel_len, FourierOrder, comm, (Real)1, (Real)1, radius*2);
+    //GeomEllipse<Real>(elem_lst_src, panel_len, FourierOrder, comm, (Real)1, (Real)1, radius*2);
+    //GeomEllipse<Real>(elem_lst_trg, panel_len, FourierOrder, comm, (Real)1, (Real)1, radius*2);
+
+    auto geom_fn = [radius,geom](Real& x, Real& y, Real& z, Real& r, const Real s){
+      Real theta = 2*const_pi<Real>()*s;
+      x = cos<Real>(theta);
+      y = sin<Real>(theta);
+      z = 0;
+      if (geom == 2) {
+        r = radius;
+      } else if (geom == 3) {
+        r = radius * (2 + cos<Real>(theta));
+      } else {
+        SCTL_ASSERT_MSG(false, "Invalid geometry option.");
+      }
+    };
+    GenericGeom(elem_lst_src, geom_fn, panel_len, FourierOrder, comm);
+    GenericGeom(elem_lst_trg, geom_fn, panel_len, FourierOrder, comm);
   } else {
     SCTL_ASSERT_MSG(false, "Geometry option not supported for Laplace.");
   }
@@ -184,23 +198,33 @@ template <class Real> void test_laplace(const Comm& comm, Real quad_eps, Real ra
     }
     { // Set Md_
       Matrix<Real> Mtmp(pow<2>(FOURIER_ORDER), pow<2>(FOURIER_ORDER)); Mtmp = 0;
-
-      Mtmp.SetZero();
       if (NN) Mtmp = Md*Mfourier_transform;
       comm.Allreduce(Mtmp.begin(), Md_.begin(), pow<4>(FOURIER_ORDER), Comm::CommOp::SUM);
     }
     if (!comm.Rank()) Ms_.Write((fname+"s").c_str());
     if (!comm.Rank()) Md_.Write((fname+"d").c_str());
 
-    if (!comm.Rank()) {
-      std::cout<<Ms_<<'\n';
-      std::cout<<Md_<<'\n';
+    if (!comm.Rank() && geom == GEOM_CYLINDER) {
+      std::cout<<std::scientific<<std::setprecision(6)<<std::setw(12);
+      std::cout<<"Laplace single-layer eigen values:\n";
+      for (Long i = 0; i < FOURIER_ORDER; i++) {
+        for (Long j = 0; j < FOURIER_ORDER; j++) {
+          const Long k = i*FOURIER_ORDER+j;
+          std::cout<<Ms_[k][k]<<' ';
+        }
+        std::cout<<'\n';
+      }
+      std::cout<<"\nLaplace double-layer eigenvalues:\n";
+      for (Long i = 0; i < FOURIER_ORDER; i++) {
+        for (Long j = 0; j < FOURIER_ORDER; j++) {
+          const Long k = i*FOURIER_ORDER+j;
+          std::cout<<Md_[k][k]<<' ';
+        }
+        std::cout<<'\n';
+      }
     }
   };
-  build_matrix("OpMat/M");
-
-  BIOp_FxU.template DeleteElemList<SlenderElemList<Real>>();
-  BIOp_DxU.template DeleteElemList<SlenderElemList<Real>>();
+  build_matrix("vis/M");
 }
 
 template <class Real> void test_stokes(const Comm& comm, Real quad_eps, Real radius, Long geom) { // Nodal basis
@@ -240,7 +264,7 @@ template <class Real> void test_stokes(const Comm& comm, Real quad_eps, Real rad
   BIOp_FxU.SetTargetCoord(Xtrg);
   BIOp_DxU.SetTargetCoord(Xtrg);
 
-  if (1) { // build operator matrix in nodal basis for Stokes
+  { // build operator matrix in nodal basis for Stokes
     auto GlobalSum = [&comm](const Long Nloc) {
       StaticArray<Long,2> N{Nloc, 0};
       comm.Allreduce(N+0, N+1, 1, Comm::CommOp::SUM);
@@ -252,13 +276,13 @@ template <class Real> void test_stokes(const Comm& comm, Real quad_eps, Real rad
 
     Real SL_scal = 1.0;
     Real DL_scal = 1.0;
-    auto MobilityOp = [&BIOp_FxU, &BIOp_DxU, &SL_scal, &DL_scal](Vector<Real>* Ax, const Vector<Real>& x) {
+    auto CombinedFieldOp = [&BIOp_FxU, &BIOp_DxU, &SL_scal, &DL_scal](Vector<Real>* Ax, const Vector<Real>& x) {
       Vector<Real> Ud, Us;
       BIOp_FxU.ComputePotential(Us, x);
       BIOp_DxU.ComputePotential(Ud, x);
       (*Ax) = (x*0.5 + Ud)*DL_scal + Us*SL_scal;
     };
-    auto build_matrix = [&comm, &Nloc, &Nglb, &MobilityOp](const std::string& fname) {
+    auto build_matrix = [&comm, &Nloc, &Nglb, &CombinedFieldOp](const std::string& fname) {
       Matrix<double> M;
       Vector<Real> x, Ax;
       if (!comm.Rank()) M.ReInit(Nglb,Nglb);
@@ -268,7 +292,7 @@ template <class Real> void test_stokes(const Comm& comm, Real quad_eps, Real rad
         comm.PartitionN(x, Nloc);
         Ax.ReInit(Nloc); Ax = 0;
 
-        MobilityOp(&Ax, x);
+        CombinedFieldOp(&Ax, x);
 
         comm.PartitionN(Ax, (comm.Rank()?0:1));
         if (!comm.Rank()) {
@@ -283,9 +307,9 @@ template <class Real> void test_stokes(const Comm& comm, Real quad_eps, Real rad
     };
 
     SL_scal = 1; DL_scal = 0;
-    auto Ms = build_matrix("OpMat/Ms");
+    auto Ms = build_matrix("vis/Ms");
     SL_scal = 0; DL_scal = 1;
-    auto Md = build_matrix("OpMat/Md");
+    auto Md = build_matrix("vis/Md");
 
     auto print_cond_num = [](const Matrix<Real>& M) {
       Matrix<Real> U, S, Vt, M_ = M;
@@ -310,38 +334,37 @@ template <class Real> void test_stokes(const Comm& comm, Real quad_eps, Real rad
       ParallelSolver<Real> solver(Comm::Self(), false);
       solver(&x, Op, b, 1e-8, -1, false, &iter_count);
 
-      std::cout<<S_max/S_min<<' '<<iter_count<<'\n';
+      std::cout<<"cond="<<S_max/S_min<<" gmres_iter="<<iter_count<<'\n';
     };
     if (!comm.Rank()) {
       //omp_set_num_threads(16);
-      print_cond_num(Md);
-      print_cond_num(Ms*.125 + Md);
-      print_cond_num(Ms*.250 + Md);
-      print_cond_num(Ms*.500 + Md);
-      print_cond_num(Ms*1.00 + Md);
-      print_cond_num(Ms*2.00 + Md);
-      print_cond_num(Ms*4.00 + Md);
-      print_cond_num(Ms*8.00 + Md);
-      print_cond_num(Ms*16.0 + Md);
-      print_cond_num(Ms*32.0 + Md);
-      print_cond_num(Ms*64.0 + Md);
-      print_cond_num(Ms*128.0 + Md);
-      print_cond_num(Ms*256.0 + Md);
-      print_cond_num(Ms*512.0 + Md);
-      print_cond_num(Ms*1024.0 + Md);
-      print_cond_num(Ms*1048.0*2.0 + Md);
-      print_cond_num(Ms*1048.0*4.0 + Md);
-      print_cond_num(Ms*1048.0*8.0 + Md);
-      print_cond_num(Ms*1048.0*16.0 + Md);
-      print_cond_num(Ms*1048.0*32.0 + Md);
-      print_cond_num(Ms*1048.0*64.0 + Md);
-      print_cond_num(Ms*1048.0*128.0 + Md);
-      print_cond_num(Ms);
+      std::cout<<std::scientific<<std::setprecision(6)<<std::setw(12);
+      std::cout<<"Combined field operator condition numbers:\n";
+      std::cout<<"eta="<<0.0         <<" "; print_cond_num(Md);
+      std::cout<<"eta="<<.125        <<" "; print_cond_num(Ms*.125 + Md);
+      std::cout<<"eta="<<.250        <<" "; print_cond_num(Ms*.250 + Md);
+      std::cout<<"eta="<<.500        <<" "; print_cond_num(Ms*.500 + Md);
+      std::cout<<"eta="<<1.00        <<" "; print_cond_num(Ms*1.00 + Md);
+      std::cout<<"eta="<<2.00        <<" "; print_cond_num(Ms*2.00 + Md);
+      std::cout<<"eta="<<4.00        <<" "; print_cond_num(Ms*4.00 + Md);
+      std::cout<<"eta="<<8.00        <<" "; print_cond_num(Ms*8.00 + Md);
+      std::cout<<"eta="<<16.0        <<" "; print_cond_num(Ms*16.0 + Md);
+      std::cout<<"eta="<<32.0        <<" "; print_cond_num(Ms*32.0 + Md);
+      std::cout<<"eta="<<64.0        <<" "; print_cond_num(Ms*64.0 + Md);
+      std::cout<<"eta="<<128.0       <<" "; print_cond_num(Ms*128.0 + Md);
+      std::cout<<"eta="<<256.0       <<" "; print_cond_num(Ms*256.0 + Md);
+      std::cout<<"eta="<<512.0       <<" "; print_cond_num(Ms*512.0 + Md);
+      std::cout<<"eta="<<1024.0      <<" "; print_cond_num(Ms*1024.0 + Md);
+      std::cout<<"eta="<<1048.0*2.0  <<" "; print_cond_num(Ms*1048.0*2.0 + Md);
+      std::cout<<"eta="<<1048.0*4.0  <<" "; print_cond_num(Ms*1048.0*4.0 + Md);
+      std::cout<<"eta="<<1048.0*8.0  <<" "; print_cond_num(Ms*1048.0*8.0 + Md);
+      std::cout<<"eta="<<1048.0*16.0 <<" "; print_cond_num(Ms*1048.0*16.0 + Md);
+      std::cout<<"eta="<<1048.0*32.0 <<" "; print_cond_num(Ms*1048.0*32.0 + Md);
+      std::cout<<"eta="<<1048.0*64.0 <<" "; print_cond_num(Ms*1048.0*64.0 + Md);
+      std::cout<<"eta="<<1048.0*128.0<<" "; print_cond_num(Ms*1048.0*128.0 + Md);
+      std::cout<<"eta=inf "               ; print_cond_num(Ms);
     }
   }
-
-  BIOp_FxU.template DeleteElemList<SlenderElemList<Real>>();
-  BIOp_DxU.template DeleteElemList<SlenderElemList<Real>>();
 }
 
 int main(int argc, char** argv) {
@@ -353,12 +376,29 @@ int main(int argc, char** argv) {
     #endif
     Profile::Enable(true);
     Comm comm = Comm::World();
-    commandline_option_start(argc, argv, nullptr, comm);
-    double quad_eps = strtod(commandline_option(argc, argv, "-quad_eps", "1e-14", false, nullptr, comm), nullptr);
-    double radius = strtod(commandline_option(argc, argv, "-eps", "1e-3", false, nullptr, comm), nullptr);
-    Long geom = strtol(commandline_option(argc, argv, "-geom", "1", false, "1) Cylinder 2) Torus (const redius) 3) Torus (varying radius)", comm), nullptr, 10);
-    Long ker = strtol(commandline_option(argc, argv, "-ker", "1", false, "1) Laplace 2) Stokes", comm), nullptr, 10);
+    commandline_option_start(argc, argv, "\
+Compute the single- and double-layer boundary integral operators for the\n\
+Laplace and Stokes. The operators for Laplace are in Fourier space. The\n\
+oeprator matrices are written to the files vis/{Ms,Md} and can be opened in\n\
+MATLAB or Octave using read_mat.m\n", comm);
+    Long omp_p      = strtol(commandline_option(argc, argv, "-omp"     , "1"    , false, "Number of OpenMP threads", comm), nullptr, 10);
+    double quad_eps = strtod(commandline_option(argc, argv, "-quad_eps", "1e-14", false, "Quadrature accuracy", comm), nullptr);
+    double radius   = strtod(commandline_option(argc, argv, "-eps"     , "1e-3" , false, "Cross-sectional radius", comm), nullptr);
+    Long geom       = strtol(commandline_option(argc, argv, "-geom"    , "1"    , false, "1) Infinite cylinder\n\
+                                   2) Torus (const redius)\n\
+                                   3) Torus (varying radius)", comm), nullptr, 10);
+    Long ker = strtol(commandline_option(argc, argv, "-ker", "1", false, "1) Laplace\n\
+                                   2) Stokes", comm), nullptr, 10);
     commandline_option_end(argc, argv);
+    omp_set_num_threads(omp_p);
+
+    if (!comm.Rank()) {
+      std::cout<<"Command:\n";
+      for (Integer i = 0; i < argc; i++) {
+        std::cout<<argv[i]<<' ';
+      }
+      std::cout<<'\n';
+    }
 
     if (ker == 1) {
       test_laplace<double>(comm, quad_eps, radius, geom);

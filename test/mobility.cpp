@@ -1,7 +1,4 @@
-#include "utils.hpp"
-#include "mobility.hpp"
-#include "sctl.hpp"
-
+#include <csbq.hpp>
 using namespace sctl;
 
 int main(int argc, char** argv) {
@@ -13,7 +10,9 @@ int main(int argc, char** argv) {
     #endif
     Profile::Enable(true);
     Comm comm = Comm::World();
-    commandline_option_start(argc, argv, nullptr, comm);
+    commandline_option_start(argc, argv, "\
+Solve the Stokes mobility problem for a given number of rings in sedementation\n\
+flow and write the VTK visulaization at each time step.\n", comm);
     Long Nobj       = strtol(commandline_option(argc, argv, "-Nobj"     , "2"    , false, nullptr, comm), nullptr, 10);
     double ts_tol   = strtod(commandline_option(argc, argv, "-ts_tol"   , "1e-7" , false, nullptr, comm), nullptr);
     double gmres_tol= strtod(commandline_option(argc, argv, "-gmres_tol", "1e-10", false, nullptr, comm), nullptr);
@@ -33,16 +32,16 @@ int main(int argc, char** argv) {
     omp_set_num_threads(omp_p);
 
     if (!comm.Rank()) {
+      std::cout<<"Command:\n";
       for (Integer i = 0; i < argc; i++) {
-        std::cout<<argv[i]<<'\n';
+        std::cout<<argv[i]<<' ';
       }
+      std::cout<<'\n';
     }
 
     comm.Barrier();
     //Mobility<double>::test(comm, geom, RigidBodyList<double>::Geom::Bacteria, Nobj, loop_rad, start_idx, ts_order, dt, T, ts_tol, gmres_tol, quad_tol, geom_tol, precond, out_path);
     Mobility<double>::test(comm, geom, RigidBodyList<double>::Geom::Loop, Nobj, loop_rad, start_idx, ts_order, dt, T, ts_tol, gmres_tol, quad_tol, geom_tol, precond, out_path);
-
-    //Mobility<double>::test_(comm);
 
     Profile::print(&comm);
   }
