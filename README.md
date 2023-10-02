@@ -23,7 +23,7 @@ It is research software; use at your own risk. These pictures show some of the c
 <td>
 <img src="pics/tangle-stokes-streamlines_sm.png">
 <td>
-<img src="pics/close-to-touching-streamlines_sm.png")
+<img src="pics/close-to-touching-streamlines_sm.png">
 </tr>
 
 <tr>
