@@ -15,7 +15,7 @@ This repository also contains MATLAB codes implementing the classical
 slender-body theory asymptotic approximation,
 and solving its linear inverse problem as needed for a mobility solve.
 
-It is research software; use at your own risk. These pictures show some of the capabilities of the code (see the preprint below for details).
+It is research software; use at your own risk. The following figures show some of the capabilities of the code (see the preprint below for details).
 
 
 Stokes flow solution around rigid slender fiber with aspect ratio $10^3$, max error $10^{-10}$:
@@ -58,17 +58,20 @@ For visualization do (after installing PARAVIEW):
 make && ./bin/demo1-geometry && paraview vis/ring.pvtu
 ```
 
-For slender-body numerical implementations in MATLAB, see `SBT/` directory.
-
 
 ### Overview:
-This is a header-only C++ library, you only need to `#include <csbq.hpp>` in your code.
+
+This is a header-only C++ library: you only need to `#include <csbq.hpp>` in your code.
 It relies on the [SCTL](https://github.com/dmalhotra/SCTL) library (included as a submodule) and the path to `sctl.hpp` must be provided to the C++ compiler.
 The included Makefile may be used as a template for new projects.
 Everything is contained within `sctl::` namespace.
 Demo codes for learning to use the library are provided in `tutorial/`.
 Precomputed quadrature tables for Laplace and Stokes kernels and some geometry files are provided in `data/`.
 Test codes used to generate the results in the paper are provided in `test/`, along with SLURM scripts in `scripts/`.
+
+For slender-body numerical implementations in MATLAB, see `SBT/` directory.
+
+
 
 ### Citing this work
 
