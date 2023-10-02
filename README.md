@@ -19,12 +19,15 @@ It is research software; use at your own risk. These pictures show some of the c
 
 
 Stokes flow solution around rigid slender fiber with aspect ratio $10^3$, max error $10^{-10}$:
+
 <img src="pics/tangle-stokes-streamlines_sm.png">
 
 Stokes flow solution near close-to-touching rings, max error $10^{-11}$:
+
 <img src="pics/close-to-touching-streamlines_sm.png">
 
 Sedimentation of 512 rings each of aspect ratio 20, timestepped to 7-digit accuracy on 160 cores:
+
 <img src="pics/sed512-117_sm.png">
 
 
