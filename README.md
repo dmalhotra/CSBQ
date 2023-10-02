@@ -1,7 +1,7 @@
 # Convergent slender-body quadrature (CSBQ)
 
 authors: **Dhairya Malhotra**, with slender-body theory comparisons by
-**Alex Barnett**
+**Alex Barnett**. This work was done at the Center for Computational Mathematics at the Flatiron Institute, NY, NY.
 
 This is a high-performance parallel C++ implementation of a high-order
 adaptive Nystr&ouml;m quadrature for the boundary integral equations arising
@@ -15,13 +15,10 @@ This repository also contains MATLAB codes implementing the classical
 slender-body theory asymptotic approximation,
 and solving its linear inverse problem as needed for a mobility solve.
 
-It is research software used as part of investigations of PDE
-solvers at the Center for Computational Mathematics at the Flatiron Institute.
-
-Use at your own risk. These pictures show some of the capabilities of the code (see the preprint below for details):
+It is research software; use at your own risk. These pictures show some of the capabilities of the code (see the preprint below for details):
 
 
-![Stokes flow solution around rigid slender fiber with aspect ratio 1000, max error 10<sup>-10</sup>](pics/tangle-stokes-streamlines_sm.png)
+<img src="pics/tangle-stokes-streamlines_sm.png" title="Stokes flow solution around rigid slender fiber with aspect ratio 1000, max error 10<sup>-10</sup>">
 
 ![Stokes flow solution near close-to-touching rings, max error 10<sup>-11</sup>](pics/close-to-touching-streamlines_sm.png)
 
