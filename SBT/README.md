@@ -1,6 +1,10 @@
-Folder for slender body theory experiments and comparison to rigid-body BIE
+## Folder for slender body theory experiments and comparison to rigid-body BIE
+
+Alex Barnett, starting late Dec 2021; finished Sept 2023
 
 All MATLAB code. Do `startup` in MATLAB before running.
+
+### List of codes
 
 Summary of low-level functions:
 ```matlab
@@ -12,6 +16,7 @@ Summary of low-level functions:
 %   map_pans                - use chart to get 3D line-integral quadrature from parameter quadr
 %   nodearccoords_pans      - node arc-length coords s_j using only 3D nodes
 %   nyst_diagdiscont_sca    - Nystrom discretize diag-discontinuous kernel, 1D panels
+%   nyst_diagdiscont_sca_nonei - Nystrom discretize diag-discont kernel, 1D panels, no neighbors
 %   nyst_K_SBT              - discretize tensor SBT K operator on panel-quad closed fiber
 %   nyst_K_SBT_nonself      - discretize SBT interaction between two distinct closed fibers
 %   nyst_Kzz_SBT            - discretize zz-cmpnt of SBT K operator, panel-quad xy-plane fiber
@@ -34,4 +39,8 @@ High-level scripts/drivers and experiments:
 
 ```
 
-Alex Barnett, starting late Dec 2021
+### To do
+
+* convert all `nyst_*` codes from 3-panel (aux nodes spread over left and right neighbors) to 1-panel (no neighbors), as in `nyst_diagdiscont_sca_nonei`. This will have a marginal speed-up (unless self-interactions dominate the setup time) and no effect on accuracy.
+
+* test various regularizations (Tornberg-Shelley, vs Ohm, vs Maxian). Expect little difference in the test cases of the paper.
