@@ -1,5 +1,5 @@
 function A = nyst_diagdiscont_sca_nonei(pan,tpan,ker,o)
-% NYST_DIAGDISCONT_SCA_NONEI  Nystrom for diag-discont kernel, 1D panels, no nei
+% NYST_DIAGDISCONT_SCA_NONEI  Nystrom for diag-discont kernel, 1D panels, no neighbors
 %
 % A = nyst_diagdiscont_sca_nonei(pan,tpan,ker) returns square matrix, Nystrom
 %  discretization of the operator with kernel function ker on the 1D
@@ -12,7 +12,8 @@ function A = nyst_diagdiscont_sca_nonei(pan,tpan,ker,o)
 %
 %  The suffix _sca refers to scalar-valued functions and operators.
 %
-%  The suffix _nonei distinguishes it from a 3-panel aux-node scheme of 2021.
+%  The suffix _nonei distinguishes it from a 3-panel aux-node scheme of 2021,
+%  which it replaces (nyst_diagdiscont_sca).
 %
 % A = nyst_diagdiscont_sca_nonei(pan,tpan,ker,o) also controls options.
 %

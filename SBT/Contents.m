@@ -12,6 +12,7 @@
 %   map_pans                - use chart to get 3D line-integral quadrature from parameter quadr
 %   nodearccoords_pans      - node arc-length coords s_j using only 3D nodes
 %   nyst_diagdiscont_sca    - Nystrom discretize diag-discontinuous kernel, 1D panels
+%   nyst_diagdiscont_sca_nonei - Nystrom discretize diag-discontinuous kernel, 1D panels, no neighbors
 %   nyst_K_SBT              - discretize tensor SBT K operator on panel-quad closed fiber
 %   nyst_Kzz_SBT            - discretize zz-cmpnt of SBT K operator, panel-quad xy-plane fiber
 %   pan_brkpts              - sum up quadrature weights in panels and cumsum to breakpoints
