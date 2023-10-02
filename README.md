@@ -18,18 +18,26 @@ and solving its linear inverse problem as needed for a mobility solve.
 It is research software; use at your own risk. These pictures show some of the capabilities of the code (see the preprint below for details):
 
 
-![](pics/tangle-stokes-streamlines_sm.png)
+<table border=0>
+<tr>
+<td>
+<img src="pics/tangle-stokes-streamlines_sm.png">
+<td>
+<img src="pics/close-to-touching-streamlines_sm.png")
+</tr>
 
-Stokes flow solution around rigid slender fiber with aspect ratio $\sim$1000, max error $10^{-10}$.
-
-![](pics/close-to-touching-streamlines_sm.png)
-
+<tr>
+<td>
+Stokes flow solution around rigid slender fiber with aspect ratio $10^3$, max error $10^{-10}$.
+<td>
 Stokes flow solution near close-to-touching rings, max error $10^{-11}$.
+</tr>
 
-![](pics/sed512-117_sm.png)
-
+<tr>
+<img src="pics/sed512-117_sm.png">
 Sedimentation of 512 rings each of aspect ratio 20, timestepped to 7-digit accuracy on 160 cores.
-
+</tr>
+</table>
 
 
 
