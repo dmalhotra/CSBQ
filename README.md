@@ -77,4 +77,5 @@ For slender-body numerical implementations in MATLAB, see `SBT/` directory.
 
 If you find this code useful in your research, please cite our preprint,
 "Efficient Convergent Boundary Integral Methods for Slender Bodies,"
-Dhairya Malhotra and Alex Barnett, arXiv:#### (2023).
+Dhairya Malhotra and Alex Barnett, arXiv:2310.00889,
+*submitted*, J. Comput. Phys. (2023).
