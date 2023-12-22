@@ -19,7 +19,7 @@ endif
 ifeq ($(shell uname -s),Darwin)
 	CXXFLAGS += -g -rdynamic -Wl,-no_pie # for stack trace (on Mac)
 else
-	CXXFLAGS += -g -rdynamic # for stack trace
+	CXXFLAGS += -gdwarf-4 -g -rdynamic # for stack trace
 endif
 
 CXXFLAGS += -DSCTL_PROFILE=5 -DSCTL_VERBOSE # enable profiling
@@ -75,6 +75,9 @@ test : $(TEST_BIN)
 $(BINDIR)/%: $(OBJDIR)/%.o
 	-@$(MKDIRS) $(dir $@)
 	$(CXX) $^ $(LDLIBS) -o $@ $(CXXFLAGS)
+ifeq "$(OS)" "Darwin"
+  /usr/bin/dsymutil $@ -o $@.dSYM
+endif
 
 $(OBJDIR)/%.o: $(TUTORDIR)/%.cpp
 	-@$(MKDIRS) $(dir $@)
