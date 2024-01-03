@@ -1,4 +1,8 @@
 # Convergent slender-body quadrature (CSBQ)
+[![Stable Version](https://badgen.net/github/tag/dmalhotra/CSBQ)](https://github.com/dmalhotra/CSBQ/tags)
+[![Latest Release](https://img.shields.io/github/v/release/dmalhotra/CSBQ?color=%233D9970)](https://github.com/dmalhotra/CSBQ/releases)
+[![DOI](https://zenodo.org/badge/363025186.svg)](https://zenodo.org/doi/10.5281/zenodo.10456743)
+
 
 Principal author **Dhairya Malhotra**, with additional code by **Alex Barnett**.
 This work was done at the Center for Computational Mathematics at the Flatiron Institute, NY, NY.
