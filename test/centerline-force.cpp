@@ -142,7 +142,7 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
   Vector<Real> r(Npanels * ChebOrder * FourierOrder * COORD_DIM); // the vector X-Xc
   Vector<Real> Wa(Npanels * ChebOrder * FourierOrder); // weights to average force on surface to the centerline
   Vector<Real> PanelNodes = SlenderElemList<Real>::CenterlineNodes(ChebOrder); // Chebyshev discretization nodes
-  Vector<Real> ChebQuadWts = ChebQuadRule<Real>::ComputeWts(ChebOrder); // Clenshaw-Curtis quadrature weights on [0,1]
+  Vector<Real> ChebQuadWts = ChebQuadRule<Real>::wts(ChebOrder); // Clenshaw-Curtis quadrature weights on [0,1]
   { // Set fluid velocity on the boundary U and the weights Wa
     Vector<Real> sin_theta(FourierOrder), cos_theta(FourierOrder);
     for (Long i = 0; i < FourierOrder; i++) {

@@ -13,7 +13,7 @@
  * 4) write VTK visualization of the geometry.
  *
  * To compile and run the code, start in the project root directory and run:
- * make bin/ex1-geometry && ./bin/ex1-geometry
+ * make bin/demo1-geometry && ./bin/demo1-geometry
  */
 
 #include <csbq.hpp>

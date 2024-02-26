@@ -8,7 +8,7 @@
  * 2) evaluate potentials at on- and off-surface target points.
  *
  * To compile and run the code, start in the project root directory and run:
- * make bin/ex2-quadrature && ./bin/ex2-quadrature
+ * make bin/demo2-quadrature && ./bin/demo2-quadrature
  */
 
 #include <csbq.hpp>

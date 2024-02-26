@@ -379,7 +379,7 @@ int main(int argc, char** argv) {
     commandline_option_start(argc, argv, "\
 Compute the single- and double-layer boundary integral operators for the\n\
 Laplace and Stokes. The operators for Laplace are in Fourier space. The\n\
-oeprator matrices are written to the files vis/{Ms,Md} and can be opened in\n\
+operator matrices are written to the files vis/{Ms,Md} and can be opened in\n\
 MATLAB or Octave using read_mat.m\n", comm);
     Long omp_p      = strtol(commandline_option(argc, argv, "-omp"     , "1"    , false, "Number of OpenMP threads", comm), nullptr, 10);
     double quad_eps = strtod(commandline_option(argc, argv, "-quad_eps", "1e-14", false, "Quadrature accuracy", comm), nullptr);
