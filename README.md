@@ -19,7 +19,7 @@ This repository also contains MATLAB codes implementing the classical
 slender-body theory asymptotic approximation,
 and solving its linear inverse problem as needed for a mobility solve.
 
-It is research software; use at your own risk. The following figures show some of the capabilities of the code (see the preprint below for details).
+It is research software; use at your own risk. The following figures show some of the capabilities of the code (see the publication below for details).
 
 
 Stokes flow solution around rigid slender fiber with aspect ratio $10^3$, max error $10^{-10}$:
@@ -79,7 +79,7 @@ For slender-body numerical implementations in MATLAB, see `SBT/` directory.
 
 ### Citing this work
 
-If you find this code useful in your research, please cite our preprint,
-"Efficient Convergent Boundary Integral Methods for Slender Bodies,"
-Dhairya Malhotra and Alex Barnett, arXiv:2310.00889,
-*submitted*, J. Comput. Phys. (2023).
+If you find this code useful in your research, please cite our publication:
+
+- Dhairya Malhotra and Alex Barnett. "Efficient convergent boundary integral methods for slender bodies." *Journal of Computational Physics* 503 (2024): 112855. doi:[10.1016/j.jcp.2024.112855](http://dx.doi.org/10.1016/j.jcp.2024.112855)
+

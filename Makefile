@@ -1,7 +1,7 @@
 SCTL_INCLUDE_DIR ?= ./SCTL/include
 SCTL_DATA_PATH ?= ./data
 
-CXX=g++ # requires g++-8 or newer / icpc (with gcc compatibility 7.5 or newer) / clang++ with llvm-10 or newer
+CXX=g++ # requires g++-9 or newer / icpc (with gcc compatibility 7.5 or newer) / clang++ with llvm-10 or newer
 CXXFLAGS = -std=c++11 -fopenmp -Wall -Wfloat-conversion # need C++11 and OpenMP
 
 CXXFLAGS += -DSCTL_DATA_PATH=$(SCTL_DATA_PATH) # path for quadrature tables
@@ -26,17 +26,17 @@ CXXFLAGS += -DSCTL_PROFILE=5 -DSCTL_VERBOSE # enable profiling
 
 #CXXFLAGS += -DSCTL_HAVE_MPI # enable MPI
 
-CXXFLAGS += -lblas -DSCTL_HAVE_BLAS # use BLAS
-CXXFLAGS += -llapack -DSCTL_HAVE_LAPACK # use LAPACK
+#CXXFLAGS += -lblas -DSCTL_HAVE_BLAS # use BLAS
+#CXXFLAGS += -llapack -DSCTL_HAVE_LAPACK # use LAPACK
 #CXXFLAGS += -lopenblas -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK # use BLAS and LAPACK (OpenBLAS)
 #CXXFLAGS += -mkl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK # use MKL BLAS and LAPACK (Intel compiler)
 #CXXFLAGS += -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK # use MKL BLAS and LAPACK (non-Intel compiler)
 #CXXFLAGS += -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -lpthread -lm -ldl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK
 #CXXFLAGS += -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl -DSCTL_HAVE_BLAS -DSCTL_HAVE_LAPACK
 
-CXXFLAGS += -lfftw3 -DSCTL_HAVE_FFTW
-CXXFLAGS += -lfftw3f -DSCTL_HAVE_FFTWF
-CXXFLAGS += -lfftw3l -DSCTL_HAVE_FFTWL
+#CXXFLAGS += -lfftw3 -DSCTL_HAVE_FFTW
+#CXXFLAGS += -lfftw3f -DSCTL_HAVE_FFTWF
+#CXXFLAGS += -lfftw3l -DSCTL_HAVE_FFTWL
 
 #CXXFLAGS += -DSCTL_HAVE_SVML
 
