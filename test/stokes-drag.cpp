@@ -50,7 +50,7 @@ template <class Real> void test(const Comm& comm, const std::string fname, const
   };
 
   Vector<Real> q;
-  ParallelSolver<Real> solver(comm);
+  GMRES<Real> solver(comm);
   solver(&q, BIOp, U, gmres_tol, 100);
 
   auto SurfIntegral = [&comm](const Vector<Real>& F_cheb, const SlenderElemList<Real>& elem_lst) {

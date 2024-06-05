@@ -35,13 +35,13 @@ int main(int argc, char** argv) {
     const Long ElemOrder = 10;
     const Long FourierOrder = 12;
 
-    // discreization nodes within a element in [0,1] interval
+    // discretization nodes within a element in [0,1] interval
     const Vector<Real>& elem_nodes = SlenderElemList<Real>::CenterlineNodes(ElemOrder);
 
     const Long Nelem = 8; // number of elements
     Vector<Real> eps(Nelem*ElemOrder); // cross-sectional radius
     Vector<Real> Xc(Nelem*ElemOrder*COORD_DIM); // centerline coordinates
-    Vector<Long> ElemOrderVec(Nelem), FourierOrderVec(Nelem); // order in 's' and 'theta' for each eleemnt
+    Vector<Long> ElemOrderVec(Nelem), FourierOrderVec(Nelem); // order in 's' and 'theta' for each element
     for (Long i = 0; i < Nelem; i++) { // loop of elements (build the centerline for a circle)
       ElemOrderVec[i] = ElemOrder;
       FourierOrderVec[i] = FourierOrder;

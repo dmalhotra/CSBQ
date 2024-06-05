@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
 
     SlenderElemList<Real> elem_lst;
     elem_lst.Read<Real>("data/loop.geom", comm); // read geometry data from file
-    BIOp.AddElemList(elem_lst); // add geometry to the boundary integral oeprator
+    BIOp.AddElemList(elem_lst); // add geometry to the boundary integral operator
 
     // The target points can be specified as follows. If not set or Xt is empty,
     // then the default target points are the surface discretization nodes.

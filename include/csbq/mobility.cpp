@@ -1523,7 +1523,7 @@ namespace sctl {
       Long Nglb;
       { // Set Nglb
         StaticArray<Long,2>  N_{N,0};
-        comm_.Allreduce<Long>(N_+0, N_+1, 1, Comm::CommOp::SUM);
+        comm_.Allreduce<Long>(N_+0, N_+1, 1, CommOp::SUM);
         Nglb = N_[1];
       }
       if (M.Dim(0) != Nglb || M.Dim(1) != Nglb) M.ReInit(Nglb,Nglb);
@@ -1609,7 +1609,7 @@ namespace sctl {
 
     Long Ngmres;
     Vector<Real> q;
-    ParallelSolver<Real> solver(comm_);
+    GMRES<Real> solver(comm_);
     solver(&q, MobilityOp, rhs, tol, 300, false, &Ngmres);
     BIOp_StokesFxU.InvSqrtScaling(q);
 
@@ -1765,7 +1765,7 @@ namespace sctl {
 
         Nunknown = [this,&sigma]() {
           StaticArray<Long,2> len{sigma.Dim(),0};
-          comm_.Allreduce(len+0, len+1, 1, Comm::CommOp::SUM);
+          comm_.Allreduce(len+0, len+1, 1, CommOp::SUM);
           return len[1];
         }();
       }
@@ -1891,7 +1891,7 @@ namespace sctl {
           auto max_norm = [](const Vector<Real>& X, const Comm& comm) {
             StaticArray<Real,2> max_val{0,0};
             for (const auto& x : X) max_val[0] = std::max<Real>(max_val[0], fabs(x));
-            comm.Allreduce(max_val+0, max_val+1, 1, Comm::CommOp::MAX);
+            comm.Allreduce(max_val+0, max_val+1, 1, CommOp::MAX);
             return max_val[1];
           };
           Vector<Real> Uref = stokes_mobility.ComputeVelocity(geom, Vector<Real>(), 1e-14, 1e-14);

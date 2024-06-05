@@ -123,7 +123,7 @@ template <class Real> void test(const Long test_case, const Real eps, const Real
 
     F.ReInit(0);
     Long Ngmres;
-    ParallelSolver<Real> solver(comm);
+    GMRES<Real> solver(comm);
     solver(&F, BIOp, U0, gmres_tol, 200, false, &Ngmres);
     geom.GetElemList().WriteVTK("vis/F", F, comm);
 

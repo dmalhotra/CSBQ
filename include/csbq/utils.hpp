@@ -63,12 +63,14 @@ template <class Real> class CubeVolumeVis {
 
     const Vector<Real>& GetCoord() const;
 
+    void WriteVTK(const std::string& fname, const Vector<Real>& F) const;
+
     void GetVTUData(VTUData& vtu_data, const Vector<Real>& F) const;
-    void WriteVTK(const std::string& fname, const Vector<Real>& F, const Comm& comm) const;
 
   private:
 
     Long N, N0;
+    Comm comm;
     Vector<Real> coord;
 };
 

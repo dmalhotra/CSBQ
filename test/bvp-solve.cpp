@@ -62,8 +62,8 @@ template <Long ScalExp> struct Stokes3D_FDxU_Scal_ {
   }
 };
 
-template <Long ScalExp> struct Laplace3D_FDxU_Scal : public GenericKernel<Laplace3D_FDxU_Scal_<ScalExp>> {};
-template <Long ScalExp> struct Stokes3D_FDxU_Scal : public GenericKernel<Stokes3D_FDxU_Scal_<ScalExp>> {};
+template <Long ScalExp> using Laplace3D_FDxU_Scal = GenericKernel<Laplace3D_FDxU_Scal_<ScalExp>>;
+template <Long ScalExp> using Stokes3D_FDxU_Scal = GenericKernel<Stokes3D_FDxU_Scal_<ScalExp>>;
 
 template <class Real, class KerSL, class KerDL, class KerSLDL, class KerM2M=KerSL, class KerM2L=KerSL, class KerM2T=KerSL, class KerL2L=KerSL, class KerL2T=KerSL> Real bvp_solve_conv(const std::string& fname, const std::string& ker_name, const Real tol, const Real gmres_tol, const Real SLScaling, const Comm& comm = Comm::World()) {
   SlenderElemList<RefValueType> elem_lst0;
@@ -95,7 +95,7 @@ template <class Real, class KerSL, class KerDL, class KerSLDL, class KerM2M=KerS
     std::string ref_fname = ref_path + std::string("Uref-") + ker_name;
 
     StaticArray<Long,2> Ntrg{Xt.Dim()/3*KerSL::TrgDim(), 0};
-    comm.Allreduce(Ntrg+0, Ntrg+1, 1, Comm::CommOp::SUM);
+    comm.Allreduce(Ntrg+0, Ntrg+1, 1, CommOp::SUM);
 
     Vector<double> Uref0, Iref0;
     Uref0.Read(ref_fname.c_str());

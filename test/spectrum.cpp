@@ -146,7 +146,7 @@ template <class Real> void test_laplace(const Comm& comm, Real quad_eps, Real ra
       Matrix<Real> Mtmp(pow<2>(FOURIER_ORDER), pow<2>(FOURIER_ORDER)); Mtmp = 0;
       if (NN) Mtmp = Mfourier_basis * Mfourier_transform;
       Matrix<Real> Mtmp_glb(pow<2>(FOURIER_ORDER), pow<2>(FOURIER_ORDER));
-      comm.Allreduce(Mtmp.begin(), Mtmp_glb.begin(), pow<4>(FOURIER_ORDER), Comm::CommOp::SUM);
+      comm.Allreduce(Mtmp.begin(), Mtmp_glb.begin(), pow<4>(FOURIER_ORDER), CommOp::SUM);
       for (Long i = 0; i < pow<2>(FOURIER_ORDER); i++) {
         Real scal = 1/Mtmp_glb[i][i];
         for (Long j = 0; j < NN; j++) {
@@ -194,12 +194,12 @@ template <class Real> void test_laplace(const Comm& comm, Real quad_eps, Real ra
     { // Set Ms_
       Matrix<Real> Mtmp(pow<2>(FOURIER_ORDER), pow<2>(FOURIER_ORDER)); Mtmp = 0;
       if (NN) Mtmp = Ms*Mfourier_transform;
-      comm.Allreduce(Mtmp.begin(), Ms_.begin(), pow<4>(FOURIER_ORDER), Comm::CommOp::SUM);
+      comm.Allreduce(Mtmp.begin(), Ms_.begin(), pow<4>(FOURIER_ORDER), CommOp::SUM);
     }
     { // Set Md_
       Matrix<Real> Mtmp(pow<2>(FOURIER_ORDER), pow<2>(FOURIER_ORDER)); Mtmp = 0;
       if (NN) Mtmp = Md*Mfourier_transform;
-      comm.Allreduce(Mtmp.begin(), Md_.begin(), pow<4>(FOURIER_ORDER), Comm::CommOp::SUM);
+      comm.Allreduce(Mtmp.begin(), Md_.begin(), pow<4>(FOURIER_ORDER), CommOp::SUM);
     }
     if (!comm.Rank()) Ms_.Write((fname+"s").c_str());
     if (!comm.Rank()) Md_.Write((fname+"d").c_str());
@@ -267,7 +267,7 @@ template <class Real> void test_stokes(const Comm& comm, Real quad_eps, Real rad
   { // build operator matrix in nodal basis for Stokes
     auto GlobalSum = [&comm](const Long Nloc) {
       StaticArray<Long,2> N{Nloc, 0};
-      comm.Allreduce(N+0, N+1, 1, Comm::CommOp::SUM);
+      comm.Allreduce(N+0, N+1, 1, CommOp::SUM);
       return N[1];
     };
     SCTL_ASSERT(BIOp_FxU.Dim(0) == BIOp_FxU.Dim(1));
@@ -331,7 +331,7 @@ template <class Real> void test_stokes(const Comm& comm, Real quad_eps, Real rad
 
       Long iter_count;
       Vector<Real> x(M.Dim(0)), b(M.Dim(1)); x=0; b=1;
-      ParallelSolver<Real> solver(Comm::Self(), false);
+      GMRES<Real> solver(Comm::Self(), false);
       solver(&x, Op, b, 1e-8, -1, false, &iter_count);
 
       std::cout<<"cond="<<S_max/S_min<<" gmres_iter="<<iter_count<<'\n';

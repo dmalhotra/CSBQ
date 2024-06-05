@@ -26,7 +26,7 @@ template <class Real, class Kernel> void double_layer_test(const SlenderElemList
   { // Print error
     StaticArray<Real,2> max_err{0,0};
     for (auto x : Uerr) max_err[0] = std::max<Real>(max_err[0], fabs(x));
-    comm.Allreduce(max_err+0, max_err+1, 1, Comm::CommOp::MAX);
+    comm.Allreduce(max_err+0, max_err+1, 1, CommOp::MAX);
     if (!pid) std::cout<<"Error = "<<max_err[1]<<'\n';
   }
   Profile::Enable(false);
@@ -94,8 +94,8 @@ template <class Real, class KerSL, class KerDL, class KerGrad> void test_greens_
     StaticArray<Real,2> max_val{0,0};
     for (auto x : Uerr) max_err[0] = std::max<Real>(max_err[0], fabs(x));
     for (auto x : Uref) max_val[0] = std::max<Real>(max_val[0], fabs(x));
-    comm.Allreduce(max_err+0, max_err+1, 1, Comm::CommOp::MAX);
-    comm.Allreduce(max_val+0, max_val+1, 1, Comm::CommOp::MAX);
+    comm.Allreduce(max_err+0, max_err+1, 1, CommOp::MAX);
+    comm.Allreduce(max_val+0, max_val+1, 1, CommOp::MAX);
     if (!pid) std::cout<<"Error = "<<max_err[1]/max_val[1]<<'\n';
   }
 
@@ -147,7 +147,7 @@ template <class Real, class KerSL, class KerDL, class KerM2M, class KerM2L, clas
     V0 = 1;
   }
   Profile::Tic("Solve", &comm, true);
-  ParallelSolver<Real> solver(comm);
+  GMRES<Real> solver(comm);
   solver(&sigma, BIOp, V0, gmres_tol, 200);
   if (0) { // Write solution to file
     auto sigma_ = sigma;
@@ -206,7 +206,7 @@ template <class Real, class Ker> Vector<Real> bvp_solve_combined(const SlenderEl
   //comm.Barrier();
   //KerOp.Setup();
   Profile::Tic("Solve", &comm, true);
-  ParallelSolver<Real> solver(comm);
+  GMRES<Real> solver(comm);
   solver(&sigma, BIOp, V0, gmres_tol, 200);
   Profile::Toc();
 
@@ -394,7 +394,7 @@ template <class ValueType, class Real> void GeomSphere(SlenderElemList<Real>& el
 }
 
 
-template <class Real> CubeVolumeVis<Real>::CubeVolumeVis(const Long N_, Real L, const Comm& comm) : N(N_) {
+template <class Real> CubeVolumeVis<Real>::CubeVolumeVis(const Long N_, Real L, const Comm& comm_) : N(N_), comm(comm_) {
   const Long pid = comm.Rank();
   const Long Np = comm.Size();
 
@@ -442,7 +442,7 @@ template <class Real> void CubeVolumeVis<Real>::GetVTUData(VTUData& vtu_data, co
     }
   }
 }
-template <class Real> void CubeVolumeVis<Real>::WriteVTK(const std::string& fname, const Vector<Real>& F, const Comm& comm) const {
+template <class Real> void CubeVolumeVis<Real>::WriteVTK(const std::string& fname, const Vector<Real>& F) const {
   VTUData vtu_data;
   GetVTUData(vtu_data, F);
   vtu_data.WriteVTK(fname, comm);

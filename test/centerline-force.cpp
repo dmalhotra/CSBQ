@@ -235,7 +235,7 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
   }
 
   Vector<Real> F, DU;
-  ParallelSolver<Real> solver(comm); // linear solver
+  GMRES<Real> solver(comm); // linear solver
   auto scaling = [](const Vector<Real>& V_, const Vector<Real>& scal) {
     Vector<Real> V = V_;
     const Long N = scal.Dim();
