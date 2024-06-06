@@ -3,7 +3,7 @@ using namespace sctl;
 
 const bool DL_fix = true;
 const bool sqrt_scaling = true;
-const int ChebOrder = 10; // do not change this
+const int ElemOrder = 10; // do not change this
 const int FourierOrder = 16; // must be multiple of 4
 
 /**
@@ -62,7 +62,7 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
 
     panel_len.ReInit(0);
     for (const auto x : panel_len_) panel_len.PushBack((Real)x);
-    GenericGeom(elem_lst0, geom, panel_len_, Vector<Long>(), comm, ChebOrder, FourierOrder);
+    GenericGeom(elem_lst0, geom, panel_len_, Vector<Long>(), comm, ElemOrder, FourierOrder);
   } else {
     using ValueType = long double;
     const ValueType pi = const_pi<ValueType>();
@@ -112,7 +112,7 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
 
     panel_len.ReInit(0);
     for (const auto x : panel_len_) panel_len.PushBack((Real)x);
-    GenericGeom<ValueType>(elem_lst0, geom, panel_len_, Vector<Long>(), comm, ChebOrder, FourierOrder);
+    GenericGeom<ValueType>(elem_lst0, geom, panel_len_, Vector<Long>(), comm, ElemOrder, FourierOrder);
   }
   const Long Npanels = panel_len.Dim();
 
@@ -134,15 +134,15 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
     return sqrt<Real>(dot_prod(u,u));
   };
 
-  Vector<Real> Wa_surf(Npanels * ChebOrder * FourierOrder); // surface area element
-  Vector<Real> Ws(Npanels * ChebOrder); // weights to integrate along the centerline
-  Vector<Real> Xc(Npanels * ChebOrder * COORD_DIM); // coordinates of centerline
-  Vector<Real> dXc(Npanels * ChebOrder * COORD_DIM); // tangent vector to the centerline
-  Vector<Real> U(Npanels * ChebOrder * FourierOrder * COORD_DIM); // fluid velocity on the surface (the boundary condition)
-  Vector<Real> r(Npanels * ChebOrder * FourierOrder * COORD_DIM); // the vector X-Xc
-  Vector<Real> Wa(Npanels * ChebOrder * FourierOrder); // weights to average force on surface to the centerline
-  Vector<Real> PanelNodes = SlenderElemList<Real>::CenterlineNodes(ChebOrder); // Chebyshev discretization nodes
-  Vector<Real> ChebQuadWts = ChebQuadRule<Real>::wts(ChebOrder); // Clenshaw-Curtis quadrature weights on [0,1]
+  Vector<Real> Wa_surf(Npanels * ElemOrder * FourierOrder); // surface area element
+  Vector<Real> Ws(Npanels * ElemOrder); // weights to integrate along the centerline
+  Vector<Real> Xc(Npanels * ElemOrder * COORD_DIM); // coordinates of centerline
+  Vector<Real> dXc(Npanels * ElemOrder * COORD_DIM); // tangent vector to the centerline
+  Vector<Real> U(Npanels * ElemOrder * FourierOrder * COORD_DIM); // fluid velocity on the surface (the boundary condition)
+  Vector<Real> r(Npanels * ElemOrder * FourierOrder * COORD_DIM); // the vector X-Xc
+  Vector<Real> Wa(Npanels * ElemOrder * FourierOrder); // weights to average force on surface to the centerline
+  Vector<Real> PanelNodes = SlenderElemList<Real>::CenterlineNodes(ElemOrder); // Chebyshev discretization nodes
+  Vector<Real> ChebQuadWts = ChebQuadRule<Real>::wts(ElemOrder); // Clenshaw-Curtis quadrature weights on [0,1]
   { // Set fluid velocity on the boundary U and the weights Wa
     Vector<Real> sin_theta(FourierOrder), cos_theta(FourierOrder);
     for (Long i = 0; i < FourierOrder; i++) {
@@ -155,33 +155,33 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
       Vector<Real> X, dX_ds, dX_dt, Wa_surf_;
       elem_lst0.SlenderElemList<Real>::GetGeom(&X, nullptr, &Wa_surf_, &dX_ds, &dX_dt, PanelNodes, sin_theta, cos_theta, panel_idx);
 
-      Vector<Real> U_(ChebOrder * FourierOrder * COORD_DIM, U.begin() + panel_idx * ChebOrder * FourierOrder * COORD_DIM, false); // sub-array of U
+      Vector<Real> U_(ElemOrder * FourierOrder * COORD_DIM, U.begin() + panel_idx * ElemOrder * FourierOrder * COORD_DIM, false); // sub-array of U
       U_ = dX_dt / (r0*r0); // the tangential derivative of the surface in angular direction scaled by (1/r0^2)
 
       { // Set Xc, dXc
-        Vector<Real> X0(COORD_DIM*ChebOrder), X0s(COORD_DIM*ChebOrder); X0 = 0; // Centerline coordinates and derivatives
-        for (Long i = 0; i < ChebOrder; i++) {
+        Vector<Real> X0(COORD_DIM*ElemOrder), X0s(COORD_DIM*ElemOrder); X0 = 0; // Centerline coordinates and derivatives
+        for (Long i = 0; i < ElemOrder; i++) {
           for (Long j = 0; j < FourierOrder; j++) {
             for (Long k = 0; k < COORD_DIM; k++) {
-              X0[k*ChebOrder+i] += X[(i*FourierOrder+j)*COORD_DIM+k] / FourierOrder;
+              X0[k*ElemOrder+i] += X[(i*FourierOrder+j)*COORD_DIM+k] / FourierOrder;
             }
           }
         }
         LagrangeInterp<Real>::Derivative(X0s, X0, PanelNodes);
-        for (Long i = 0; i < ChebOrder; i++) {
+        for (Long i = 0; i < ElemOrder; i++) {
           for (Long k = 0; k < COORD_DIM; k++) {
-            Xc[(panel_idx*ChebOrder+i)*COORD_DIM+k] = X0[k*ChebOrder+i];
-            dXc[(panel_idx*ChebOrder+i)*COORD_DIM+k] = X0s[k*ChebOrder+i];
+            Xc[(panel_idx*ElemOrder+i)*COORD_DIM+k] = X0[k*ElemOrder+i];
+            dXc[(panel_idx*ElemOrder+i)*COORD_DIM+k] = X0s[k*ElemOrder+i];
           }
         }
       }
 
-      for (Long i = 0; i < ChebOrder; i++) {
-        const Vec3 dXc_(dXc.begin() + (panel_idx*ChebOrder+i)*COORD_DIM);
-        Ws[panel_idx*ChebOrder+i] = vec3_mag(dXc_) * ChebQuadWts[i];
+      for (Long i = 0; i < ElemOrder; i++) {
+        const Vec3 dXc_(dXc.begin() + (panel_idx*ElemOrder+i)*COORD_DIM);
+        Ws[panel_idx*ElemOrder+i] = vec3_mag(dXc_) * ChebQuadWts[i];
         for (Long j = 0; j < FourierOrder; j++) {
           const Long node_idx = i * FourierOrder + j;
-          const Long idx = panel_idx * ChebOrder*FourierOrder + node_idx;
+          const Long idx = panel_idx * ElemOrder*FourierOrder + node_idx;
 
           //const auto Xs = Vec3(dX_ds.begin() + node_idx * COORD_DIM);
           const auto Xt = Vec3(dX_dt.begin() + node_idx * COORD_DIM);
@@ -260,12 +260,12 @@ template <class Real> void test(const Comm& comm, const Real r0, const bool elli
   elem_lst0.WriteVTK("vis/F-helix", F, comm);
 
   Real s_offset = s0;
-  Vector<Real> s_vec(Npanels * ChebOrder); // the parameterization s in [0,1]
-  Vector<Real> F0(Npanels * ChebOrder * COORD_DIM); // force per-unit-length
-  Vector<Real> T0(Npanels * ChebOrder); // parallel torque per-unit-length
+  Vector<Real> s_vec(Npanels * ElemOrder); // the parameterization s in [0,1]
+  Vector<Real> F0(Npanels * ElemOrder * COORD_DIM); // force per-unit-length
+  Vector<Real> T0(Npanels * ElemOrder); // parallel torque per-unit-length
   for (Long panel_idx = 0; panel_idx < Npanels; panel_idx++) { // loop over panels
-    for (Long i = 0; i < ChebOrder; i++) {
-      const Long idx = panel_idx*ChebOrder+i;
+    for (Long i = 0; i < ElemOrder; i++) {
+      const Long idx = panel_idx*ElemOrder+i;
       s_vec[idx] = s_offset + PanelNodes[i]*panel_len[panel_idx];
 
       Vec3 F0_, T0_;

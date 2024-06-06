@@ -32,60 +32,27 @@ and solving its linear inverse problem as needed for a mobility solve.
 
 It is research software; use at your own risk. The following figures show some of the capabilities of the code (see the publication below for details).
 
+.. figure:: ../pics/tangle-stokes-streamlines_sm.png
+   :class: with-border
+   :align: center
+   :width: 400
 
-Stokes flow solution around rigid slender fiber with aspect ratio :math:`10^3`, max error :math:`10^{-10}`:
+   Stokes flow solution around rigid slender fiber with aspect ratio :math:`10^3`, max error :math:`10^{-10}`.
 
-.. image:: ../pics/tangle-stokes-streamlines_sm.png
+.. figure:: ../pics/close-to-touching-streamlines_sm.png
+   :class: with-border
+   :align: center
+   :width: 400
+   
+   Stokes flow solution near close-to-touching rings, max error :math:`10^{-11}`.
 
-Stokes flow solution near close-to-touching rings, max error $10^{-11}$:
+.. figure:: ../pics/sed512-117_sm.png
+   :class: with-border
+   :align: center
+   :width: 400
 
-.. image:: ../pics/close-to-touching-streamlines_sm.png
+   Sedimentation of 512 rings each of aspect ratio 20, timestepped to 7-digit accuracy on 160 cores.
 
-Sedimentation of 512 rings each of aspect ratio 20, timestepped to 7-digit accuracy on 160 cores:
-
-.. image:: ../pics/sed512-117_sm.png
-
-Minimum requirements to compile:
----------------------------------
-
-C++ compiler that supports C++11 standard
-
-Optional libraries for better performance:
--------------------------------------------
-
-BLAS, LAPACK, FFTW, MPI (distributed memory parallelism), PVFMM
-
-Instructions:
--------------
-
-.. code-block:: bash
-
-    git clone https://github.com/dmalhotra/CSBQ.git
-    cd CSBQ
-    git submodule init
-    git submodule update
-    # update Makefile as necessary
-    make
-    ./bin/demo1-geometry
-
-For visualization do (after installing PARAVIEW):
-
-.. code-block:: bash
-
-    make && ./bin/demo1-geometry && paraview vis/ring.pvtu
-
-Overview:
----------
-
-This is a header-only C++ library: you only need to ``#include <csbq.hpp>`` in your code.
-It relies on the `SCTL <https://github.com/dmalhotra/SCTL>`_ library (included as a submodule) and the path to ``sctl.hpp`` must be provided to the C++ compiler.
-The included Makefile may be used as a template for new projects.
-Everything is contained within ``sctl::`` namespace.
-Demo codes for learning to use the library are provided in ``tutorial/``.
-Precomputed quadrature tables for Laplace and Stokes kernels and some geometry files are provided in ``data/``.
-Test codes used to generate the results in the paper are provided in ``test/``, along with SLURM scripts in ``scripts/``.
-
-For slender-body numerical implementations in MATLAB, see ``SBT/`` directory.
 
 Citing this work
 -----------------
@@ -93,4 +60,21 @@ Citing this work
 If you find this code useful in your research, please cite our publication:
 
 - Dhairya Malhotra and Alex Barnett, "Efficient Convergent Boundary Integral Methods for Slender Bodies," *Journal of Computational Physics*, vol. 503, p. 112855, Apr. 2024. DOI: [10.1016/j.jcp.2024.112855](http://dx.doi.org/10.1016/j.jcp.2024.112855)
+
+
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   Introduction <self>
+   getting-started
+   tutorial/index
+
+.. toctree::
+   :caption: API Reference
+   :maxdepth: 1
+   :hidden:
+
+   doxygen/index
 

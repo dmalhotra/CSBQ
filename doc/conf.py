@@ -115,7 +115,7 @@ if not on_rtd:  # only import and set the theme if we're building docs locally
 html_theme_options = {
     'collapse_navigation': False,
     'sticky_navigation': True,
-    'navigation_depth': 3,
+    'navigation_depth': 2,
     'includehidden': True,
     'titles_only': False
 }

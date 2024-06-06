@@ -1,4 +1,6 @@
 
+#include "csbq/slender_element.cpp"
+
 namespace sctl {
 
   template <class ValueType> static Vector<ValueType> Allgather(const Vector<ValueType>& Y_loc, const Comm& comm) {
@@ -17,12 +19,12 @@ namespace sctl {
 
 
   template <class Real> RigidBodyList<Real>::RigidBodyList(const Comm& comm, const Long Nobj, const Real loop_rad, const Geom& geom_type) : comm_(comm) {
-    InitGeom(X, R, OrientVec, ChebOrder, FourierOrder, panel_len, Mr_lst, obj_elem_cnt, obj_elem_dsp, Nobj, loop_rad, geom_type);
-    InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ChebOrder, FourierOrder, X, R, OrientVec, comm_);
+    InitGeom(X, R, OrientVec, ElemOrder, FourierOrder, panel_len, Mr_lst, obj_elem_cnt, obj_elem_dsp, Nobj, loop_rad, geom_type);
+    InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ElemOrder, FourierOrder, X, R, OrientVec, comm_);
     GetXc(Xc, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
   }
 
-  template <class Real> template <class ValueType> void RigidBodyList<Real>::Init(const Vector<Long>& obj_elem_cnt_, const Vector<ValueType>& Mr_lst_, const Vector<Long>& ChebOrder_, const Vector<Long>& FourierOrder_, const Vector<ValueType>& panel_len_, const Vector<ValueType>& X_, const Vector<ValueType>& R_, const Vector<ValueType>& OrientVec_) {
+  template <class Real> template <class ValueType> void RigidBodyList<Real>::Init(const Vector<Long>& obj_elem_cnt_, const Vector<ValueType>& Mr_lst_, const Vector<Long>& ElemOrder_, const Vector<Long>& FourierOrder_, const Vector<ValueType>& panel_len_, const Vector<ValueType>& X_, const Vector<ValueType>& R_, const Vector<ValueType>& OrientVec_) {
     const Long Nobj = obj_elem_cnt_.Dim();
     obj_elem_cnt = obj_elem_cnt_;
     obj_elem_dsp.ReInit(Nobj); obj_elem_dsp = 0;
@@ -32,7 +34,7 @@ namespace sctl {
     for (Long i = 0; i < Mr_lst.Dim(); i++) Mr_lst[i] = (Real)Mr_lst_[i];
     SCTL_ASSERT(Mr_lst.Dim() == Nobj*COORD_DIM*COORD_DIM);
 
-    ChebOrder = ChebOrder_;
+    ElemOrder = ElemOrder_;
     FourierOrder = FourierOrder_;
 
     if (panel_len.Dim() != panel_len_.Dim()) panel_len.ReInit(panel_len_.Dim());
@@ -44,7 +46,7 @@ namespace sctl {
     for (Long i = 0; i <         R.Dim(); i++)         R[i] = (Real)        R_[i];
     for (Long i = 0; i < OrientVec.Dim(); i++) OrientVec[i] = (Real)OrientVec_[i];
 
-    InitElemList<ValueType>(loc_elem_cnt, loc_elem_dsp, elem_lst, ChebOrder, FourierOrder, X_, R_, OrientVec_, comm_);
+    InitElemList<ValueType>(loc_elem_cnt, loc_elem_dsp, elem_lst, ElemOrder, FourierOrder, X_, R_, OrientVec_, comm_);
     GetXc(Xc, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
   }
 
@@ -56,7 +58,7 @@ namespace sctl {
       return;
     }
     const uint64_t Nobj = obj_elem_cnt.Dim();
-    const uint64_t Nelem = ChebOrder.Dim();
+    const uint64_t Nelem = ElemOrder.Dim();
     const uint64_t Nnds = R.Dim();
     fwrite(&Nobj, sizeof(uint64_t), 1, f1);
     fwrite(&Nelem, sizeof(uint64_t), 1, f1);
@@ -67,7 +69,7 @@ namespace sctl {
       SCTL_ASSERT(Xc.Dim() == (Long)Nobj*COORD_DIM);
       SCTL_ASSERT(Mr_lst.Dim() == (Long)Nobj*COORD_DIM*COORD_DIM);
 
-      SCTL_ASSERT(ChebOrder.Dim() == (Long)Nelem);
+      SCTL_ASSERT(ElemOrder.Dim() == (Long)Nelem);
       SCTL_ASSERT(FourierOrder.Dim() == (Long)Nelem);
       SCTL_ASSERT(panel_len.Dim() == (Long)Nelem);
 
@@ -80,7 +82,7 @@ namespace sctl {
       fwrite(&Xc[0], sizeof(Real), Nobj*COORD_DIM, f1);
       fwrite(&Mr_lst[0], sizeof(Real), Nobj*COORD_DIM*COORD_DIM, f1);
 
-      fwrite(&ChebOrder[0], sizeof(Long), Nelem, f1);
+      fwrite(&ElemOrder[0], sizeof(Long), Nelem, f1);
       fwrite(&FourierOrder[0], sizeof(Long), Nelem, f1);
       fwrite(&panel_len[0], sizeof(Real), Nelem, f1);
 
@@ -108,7 +110,7 @@ namespace sctl {
     Xc.ReInit(Nobj*COORD_DIM);
     Mr_lst.ReInit(Nobj*COORD_DIM*COORD_DIM);
 
-    ChebOrder.ReInit(Nelem);
+    ElemOrder.ReInit(Nelem);
     FourierOrder.ReInit(Nelem);
     panel_len.ReInit(Nelem);
 
@@ -121,7 +123,7 @@ namespace sctl {
     readlen = fread(&Xc[0], sizeof(Real), Nobj*COORD_DIM, f1); SCTL_ASSERT(readlen == Nobj*COORD_DIM);
     readlen = fread(&Mr_lst[0], sizeof(Real), Nobj*COORD_DIM*COORD_DIM, f1); SCTL_ASSERT(readlen == Nobj*COORD_DIM*COORD_DIM);
 
-    readlen = fread(&ChebOrder[0], sizeof(Long), Nelem, f1); SCTL_ASSERT(readlen == Nelem);
+    readlen = fread(&ElemOrder[0], sizeof(Long), Nelem, f1); SCTL_ASSERT(readlen == Nelem);
     readlen = fread(&FourierOrder[0], sizeof(Long), Nelem, f1); SCTL_ASSERT(readlen == Nelem);
     readlen = fread(&panel_len[0], sizeof(Real), Nelem, f1); SCTL_ASSERT(readlen == Nelem);
 
@@ -135,7 +137,7 @@ namespace sctl {
     if (Nobj_ >= 0) { // Select the first Nobj_ objects
       Vector<Long> obj_elem_cnt_, obj_elem_dsp_;
       Vector<Real> Xc_, Mr_lst_;
-      Vector<Long> ChebOrder_, FourierOrder_;
+      Vector<Long> ElemOrder_, FourierOrder_;
       Vector<Real> panel_len_;
       Vector<Real> X_, R_, OrientVec_;
 
@@ -148,8 +150,8 @@ namespace sctl {
         for (Long j = 0; j < COORD_DIM*COORD_DIM; j++) Mr_lst_.PushBack(Mr_lst[i*COORD_DIM*COORD_DIM+j]);
       }
       for (Long i = 0; i < Nelem_; i++) {
-        Nnds_ += ChebOrder[i];
-        ChebOrder_.PushBack(ChebOrder[i]);
+        Nnds_ += ElemOrder[i];
+        ElemOrder_.PushBack(ElemOrder[i]);
         FourierOrder_.PushBack(FourierOrder[i]);
         panel_len_.PushBack(panel_len[i]);
       }
@@ -161,7 +163,7 @@ namespace sctl {
       obj_elem_dsp = obj_elem_dsp_;
       Xc = Xc_;
       Mr_lst = Mr_lst_;
-      ChebOrder = ChebOrder_;
+      ElemOrder = ElemOrder_;
       FourierOrder = FourierOrder_;
       panel_len = panel_len_;
       R = R_;
@@ -169,7 +171,7 @@ namespace sctl {
       OrientVec = OrientVec_;
     }
 
-    InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ChebOrder, FourierOrder, X, R, OrientVec, comm_);
+    InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ElemOrder, FourierOrder, X, R, OrientVec, comm_);
   }
 
   template <class Real> const SlenderElemList<Real>& RigidBodyList<Real>::GetElemList() const {
@@ -380,7 +382,7 @@ namespace sctl {
     Vector<Long> cnt(Nobj), dsp(Nobj); cnt = 0; dsp = 0;
     for (Long obj = 0; obj < Nobj; obj++) {
       for (Long i = 0; i < obj_elem_cnt[obj]; i++) {
-        cnt[obj] += ChebOrder[obj_elem_dsp[obj] + i];
+        cnt[obj] += ElemOrder[obj_elem_dsp[obj] + i];
       }
     }
     omp_par::scan(cnt.begin(), dsp.begin(), Nobj);
@@ -403,7 +405,7 @@ namespace sctl {
         }
       }
     }
-    InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ChebOrder, FourierOrder, X, R, OrientVec, comm_);
+    InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ElemOrder, FourierOrder, X, R, OrientVec, comm_);
 
     for (Long obj = 0; obj < Nobj; obj++) { // Update Mr
       const Tensor<Real,false,COORD_DIM,COORD_DIM> Mr0((Iterator<Real>)Mr_lst0.begin() + obj*COORD_DIM*COORD_DIM);
@@ -434,9 +436,9 @@ namespace sctl {
     Vector<Real> elem_fourier_err_loc(loc_elem_cnt), elem_cheb_err_loc(loc_elem_cnt);
     for (Long i = 0; i < loc_elem_cnt; i++) {
       const Long elem_idx = loc_elem_dsp + i;
-      const Long ChebOrder_ = ChebOrder[elem_idx];
+      const Long ElemOrder_ = ElemOrder[elem_idx];
       const Long FourierOrder_ = FourierOrder[elem_idx];
-      SCTL_ASSERT(node_cnt_loc[i] == ChebOrder_ * FourierOrder_);
+      SCTL_ASSERT(node_cnt_loc[i] == ElemOrder_ * FourierOrder_);
 
       Real max_cheb_err = 0, max_fourier_err = 0;
       for (Long j = 0; j < v.Dim(); j++) {
@@ -445,35 +447,35 @@ namespace sctl {
         Real max_val_inv = 0;
         if (relative) {
           Real max_val = 0;
-          const Vector<Real> vv(ChebOrder_*FourierOrder_*dof, v[j].begin() + node_dsp_loc[i]*dof, false);
+          const Vector<Real> vv(ElemOrder_*FourierOrder_*dof, v[j].begin() + node_dsp_loc[i]*dof, false);
           for (const auto& x : vv) max_val = std::max<Real>(max_val, fabs(x));
           max_val_inv = 1/max_val;
         } else {
           max_val_inv = 1;
         }
 
-        const Matrix<Real> v_(ChebOrder_, FourierOrder_*dof, v[j].begin() + node_dsp_loc[i]*dof, false);
-        const Matrix<Real> cheb_err = v_.Transpose() * ChebErrMatrix(ChebOrder_);
+        const Matrix<Real> v_(ElemOrder_, FourierOrder_*dof, v[j].begin() + node_dsp_loc[i]*dof, false);
+        const Matrix<Real> cheb_err = v_.Transpose() * ChebErrMatrix(ElemOrder_);
         for (const auto& x : cheb_err) max_cheb_err = std::max<Real>(max_cheb_err, fabs(x)*max_val_inv);
 
-        const Matrix<Real> v_tmp = Matrix<Real>(ChebOrder_*FourierOrder_, dof, (Iterator<Real>)v_.begin(), false).Transpose();
-        const Matrix<Real> v__(dof*ChebOrder_, FourierOrder_, (Iterator<Real>)v_tmp.begin(), false);
+        const Matrix<Real> v_tmp = Matrix<Real>(ElemOrder_*FourierOrder_, dof, (Iterator<Real>)v_.begin(), false).Transpose();
+        const Matrix<Real> v__(dof*ElemOrder_, FourierOrder_, (Iterator<Real>)v_tmp.begin(), false);
         const Matrix<Real> fourier_err = v__ * FourierErrMatrix(FourierOrder_);
         for (const auto& x : fourier_err) max_fourier_err = std::max<Real>(max_fourier_err, fabs(x)*max_val_inv);
       }
       elem_fourier_err_loc[i] = pow<Real>(max_fourier_err, (FourierOrder_+1)/(Real)(FourierOrder_-1));
-      elem_cheb_err_loc[i] = pow<Real>(max_cheb_err, (ChebOrder_+1)/(Real)(ChebOrder_-1));
+      elem_cheb_err_loc[i] = pow<Real>(max_cheb_err, (ElemOrder_+1)/(Real)(ElemOrder_-1));
 
       FourierOrderLoc[i] = std::min<Long>(std::max<Long>(FOURIER_ORDER_MIN, (Long)(FourierOrder_*log<Real>(tol)/log<Real>(max_fourier_err)+FOURIER_ORDER_STEP)), FOURIER_ORDER_MAX);
       FourierOrderLoc[i] -= FourierOrderLoc[i] % FOURIER_ORDER_STEP;
     }
     FourierOrder = Allgather(FourierOrderLoc, comm_);
 
-    Vector<Long> ChebOrder_new, FourierOrder_new;
+    Vector<Long> ElemOrder_new, FourierOrder_new;
     Vector<Long> obj_elem_cnt_new, obj_elem_dsp_new;
     Vector<Real> X_new, R_new, OrientVec_new, panel_len_new;
     { // refine/coarsen panels
-      Vector<Long> node_cnt = ChebOrder, node_dsp = ChebOrder*0;
+      Vector<Long> node_cnt = ElemOrder, node_dsp = ElemOrder*0;
       omp_par::scan(node_cnt.begin(), node_dsp.begin(), node_cnt.Dim());
 
       Vector<Real> cheb_err = Allgather(elem_cheb_err_loc, comm_);
@@ -487,39 +489,39 @@ namespace sctl {
         for (Long i = 0; i < Nelem; i++) {
           const Long elem = obj_elem_dsp[obj] + i;
           const Long FourierOrder_ = FourierOrder[elem];
-          const Long ChebOrder_ = ChebOrder[elem];
+          const Long ElemOrder_ = ElemOrder[elem];
 
-          const auto RefinementMatrix = [](const Integer ChebOrder_) {
-            Vector<Real> trg_nds(2*ChebOrder_);
-            const Vector<Real>& src_nds = ChebQuadRule<Real>::nds(ChebOrder_);
-            for (Long j = 0; j < ChebOrder_; j++) {
+          const auto RefinementMatrix = [](const Integer ElemOrder_) {
+            Vector<Real> trg_nds(2*ElemOrder_);
+            const Vector<Real>& src_nds = ChebQuadRule<Real>::nds(ElemOrder_);
+            for (Long j = 0; j < ElemOrder_; j++) {
               trg_nds[j] = src_nds[j]*0.5;
-              trg_nds[ChebOrder_+j] = 0.5 + src_nds[j]*0.5;
+              trg_nds[ElemOrder_+j] = 0.5 + src_nds[j]*0.5;
             }
 
-            Vector<Real> M_(ChebOrder_ * 2*ChebOrder_);
+            Vector<Real> M_(ElemOrder_ * 2*ElemOrder_);
             LagrangeInterp<Real>::Interpolate(M_, src_nds, trg_nds);
-            return Matrix<Real>(ChebOrder_, 2*ChebOrder_, M_.begin(), false).Transpose();
+            return Matrix<Real>(ElemOrder_, 2*ElemOrder_, M_.begin(), false).Transpose();
           };
-          const auto CoarseningMatrix = [](const Integer ChebOrder_) {
-            const Vector<Real>& src_nds = ChebQuadRule<Real>::nds(ChebOrder_);
-            Vector<Real> trg_nds0(ChebOrder_/2), trg_nds1(ChebOrder_-ChebOrder_/2);
-            for (Long j = 0; j < ChebOrder_/2; j++) trg_nds0[j] = src_nds[j]*2;
-            for (Long j = ChebOrder_/2; j < ChebOrder_; j++) trg_nds1[j-ChebOrder_/2] = src_nds[j]*2-1.0;
+          const auto CoarseningMatrix = [](const Integer ElemOrder_) {
+            const Vector<Real>& src_nds = ChebQuadRule<Real>::nds(ElemOrder_);
+            Vector<Real> trg_nds0(ElemOrder_/2), trg_nds1(ElemOrder_-ElemOrder_/2);
+            for (Long j = 0; j < ElemOrder_/2; j++) trg_nds0[j] = src_nds[j]*2;
+            for (Long j = ElemOrder_/2; j < ElemOrder_; j++) trg_nds1[j-ElemOrder_/2] = src_nds[j]*2-1.0;
 
-            Matrix<Real> Mcoarsen(ChebOrder_, 2*ChebOrder_); Mcoarsen = 0;
-            Vector<Real> M0(ChebOrder_ * trg_nds0.Dim()), M1(ChebOrder_ * trg_nds1.Dim());
+            Matrix<Real> Mcoarsen(ElemOrder_, 2*ElemOrder_); Mcoarsen = 0;
+            Vector<Real> M0(ElemOrder_ * trg_nds0.Dim()), M1(ElemOrder_ * trg_nds1.Dim());
             LagrangeInterp<Real>::Interpolate(M0, src_nds, trg_nds0);
             LagrangeInterp<Real>::Interpolate(M1, src_nds, trg_nds1);
 
-            for (Long k0 = 0; k0 < ChebOrder_; k0++) {
+            for (Long k0 = 0; k0 < ElemOrder_; k0++) {
               for (Long k1 = 0; k1 < trg_nds0.Dim(); k1++) {
                 Mcoarsen[k1][k0] = M0[k0*trg_nds0.Dim()+k1];
               }
             }
-            for (Long k0 = 0; k0 < ChebOrder_; k0++) {
+            for (Long k0 = 0; k0 < ElemOrder_; k0++) {
               for (Long k1 = 0; k1 < trg_nds1.Dim(); k1++) {
-                Mcoarsen[trg_nds0.Dim()+k1][ChebOrder_+k0] = M1[k0*trg_nds1.Dim()+k1];
+                Mcoarsen[trg_nds0.Dim()+k1][ElemOrder_+k0] = M1[k0*trg_nds1.Dim()+k1];
               }
             }
             return Mcoarsen;
@@ -527,8 +529,8 @@ namespace sctl {
 
           bool if_coarsen = false;
           { // Set if_coarsen
-            const Real tol_coarsen = 0.1 * tol * pow<Real>(0.5, ChebOrder_);
-            if (i<Nelem-1 && panel_length[i]==panel_length[i+1] && ChebOrder[elem]==ChebOrder[elem+1]) {
+            const Real tol_coarsen = 0.1 * tol * pow<Real>(0.5, ElemOrder_);
+            if (i<Nelem-1 && panel_length[i]==panel_length[i+1] && ElemOrder[elem]==ElemOrder[elem+1]) {
               if (((Integer)(panel_offset[i]/panel_length[i]+0.5)) % 2 == 0) { // panels are siblings in binary tree
                 if (cheb_err[elem]<tol_coarsen && cheb_err[elem+1]<tol_coarsen) {
                   if_coarsen = true;
@@ -538,15 +540,15 @@ namespace sctl {
           }
 
           if (if_coarsen) {
-            const Matrix<Real> Mcoarsen = CoarseningMatrix(ChebOrder_);
+            const Matrix<Real> Mcoarsen = CoarseningMatrix(ElemOrder_);
             panel_len_new.PushBack(panel_len[elem]*2);
             FourierOrder_new.PushBack(std::max<Long>(FourierOrder[elem],FourierOrder[elem+1]));
-            ChebOrder_new.PushBack(ChebOrder_);
+            ElemOrder_new.PushBack(ElemOrder_);
             { // Set X_new, R_new, OrientVec_new
-              Matrix<Real> R_ = Mcoarsen * Matrix<Real>(2*ChebOrder_, 1, R.begin() + node_dsp[elem], false);
-              Matrix<Real> X_ = Mcoarsen * Matrix<Real>(2*ChebOrder_, COORD_DIM, X.begin() + node_dsp[elem]*COORD_DIM, false);
-              Matrix<Real> OrientVec_ = Mcoarsen * Matrix<Real>(2*ChebOrder_, COORD_DIM, OrientVec.begin() + node_dsp[elem]*COORD_DIM, false);
-              for (Long j = 0; j < ChebOrder_; j++) {
+              Matrix<Real> R_ = Mcoarsen * Matrix<Real>(2*ElemOrder_, 1, R.begin() + node_dsp[elem], false);
+              Matrix<Real> X_ = Mcoarsen * Matrix<Real>(2*ElemOrder_, COORD_DIM, X.begin() + node_dsp[elem]*COORD_DIM, false);
+              Matrix<Real> OrientVec_ = Mcoarsen * Matrix<Real>(2*ElemOrder_, COORD_DIM, OrientVec.begin() + node_dsp[elem]*COORD_DIM, false);
+              for (Long j = 0; j < ElemOrder_; j++) {
                 R_new.PushBack(R_[j][0]);
                 for (Integer k = 0; k < COORD_DIM; k++) {
                   X_new.PushBack(X_[j][k]);
@@ -557,18 +559,18 @@ namespace sctl {
             obj_elem_cnt_new_++;
             i++;
           } else if (cheb_err[elem] > tol) {
-            const Matrix<Real> M = RefinementMatrix(ChebOrder_);
+            const Matrix<Real> M = RefinementMatrix(ElemOrder_);
             panel_len_new.PushBack(panel_len[elem]/2);
             panel_len_new.PushBack(panel_len[elem]/2);
             FourierOrder_new.PushBack(FourierOrder_);
             FourierOrder_new.PushBack(FourierOrder_);
-            ChebOrder_new.PushBack(ChebOrder_);
-            ChebOrder_new.PushBack(ChebOrder_);
+            ElemOrder_new.PushBack(ElemOrder_);
+            ElemOrder_new.PushBack(ElemOrder_);
             { // Set X_new, R_new, OrientVec_new
-              Matrix<Real> R_ = M * Matrix<Real>(ChebOrder_, 1, R.begin() + node_dsp[elem], false);
-              Matrix<Real> X_ = M * Matrix<Real>(ChebOrder_, COORD_DIM, X.begin() + node_dsp[elem]*COORD_DIM, false);
-              Matrix<Real> OrientVec_ = M * Matrix<Real>(ChebOrder_, COORD_DIM, OrientVec.begin() + node_dsp[elem]*COORD_DIM, false);
-              for (Long j = 0; j < 2*ChebOrder_; j++) {
+              Matrix<Real> R_ = M * Matrix<Real>(ElemOrder_, 1, R.begin() + node_dsp[elem], false);
+              Matrix<Real> X_ = M * Matrix<Real>(ElemOrder_, COORD_DIM, X.begin() + node_dsp[elem]*COORD_DIM, false);
+              Matrix<Real> OrientVec_ = M * Matrix<Real>(ElemOrder_, COORD_DIM, OrientVec.begin() + node_dsp[elem]*COORD_DIM, false);
+              for (Long j = 0; j < 2*ElemOrder_; j++) {
                 R_new.PushBack(R_[j][0]);
                 for (Integer k = 0; k < COORD_DIM; k++) {
                   X_new.PushBack(X_[j][k]);
@@ -580,8 +582,8 @@ namespace sctl {
           } else {
             panel_len_new.PushBack(panel_len[elem]);
             FourierOrder_new.PushBack(FourierOrder_);
-            ChebOrder_new.PushBack(ChebOrder_);
-            for (Long j = 0; j < ChebOrder_; j++) {
+            ElemOrder_new.PushBack(ElemOrder_);
+            for (Long j = 0; j < ElemOrder_; j++) {
               const Long node_idx = node_dsp[elem] + j;
               R_new.PushBack(R[node_idx]);
               for (Integer k = 0; k < COORD_DIM; k++) {
@@ -601,14 +603,14 @@ namespace sctl {
     OrientVec = OrientVec_new;
 
     panel_len = panel_len_new;
-    ChebOrder = ChebOrder_new;
+    ElemOrder = ElemOrder_new;
     FourierOrder = FourierOrder_new;
 
     obj_elem_cnt = obj_elem_cnt_new;
     obj_elem_dsp.ReInit(obj_elem_cnt.Dim()); obj_elem_dsp = 0;
     omp_par::scan(obj_elem_cnt.begin(), obj_elem_dsp.begin(), obj_elem_cnt.Dim());
 
-    InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ChebOrder, FourierOrder, X, R, OrientVec, comm_);
+    InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ElemOrder, FourierOrder, X, R, OrientVec, comm_);
 
     //if (!comm_.Rank()) std::cout<<FourierOrderNew<<'\n';
     //std::cout<<elem_fourier_err<<'\n';
@@ -655,7 +657,7 @@ namespace sctl {
 
     // for each element
     Vector<Real> panel_len_;
-    Vector<Long> FourierOrder_, ChebOrder_;
+    Vector<Long> FourierOrder_, ElemOrder_;
     Vector<Long> node_cnt_, node_dsp_;
     { // Set
       const Long a = (comm_.Rank()+0)*obj_elem_cnt.Dim() / comm_.Size();
@@ -669,12 +671,12 @@ namespace sctl {
 
       Mr_lst_.ReInit(Nobj*COORD_DIM*COORD_DIM, (Iterator<Real>)Mr_lst.begin() + a*COORD_DIM*COORD_DIM);
       FourierOrder_.ReInit(Nelem, (Iterator<Long>)FourierOrder.begin() + obj_elem_dsp[a]);
-      ChebOrder_.ReInit(Nelem, (Iterator<Long>)ChebOrder.begin() + obj_elem_dsp[a]);
+      ElemOrder_.ReInit(Nelem, (Iterator<Long>)ElemOrder.begin() + obj_elem_dsp[a]);
       panel_len_.ReInit(Nelem, (Iterator<Real>)panel_len.begin() + obj_elem_dsp[a]);
 
       node_cnt_.ReInit(Nelem);
       node_dsp_.ReInit(Nelem); node_dsp_ = 0;
-      for (Long i = 0; i < Nelem; i++) node_cnt_[i] = ChebOrder_[i] * FourierOrder_[i];
+      for (Long i = 0; i < Nelem; i++) node_cnt_[i] = ElemOrder_[i] * FourierOrder_[i];
       omp_par::scan(node_cnt_.begin(), node_dsp_.begin(), node_cnt_.Dim());
     }
 
@@ -694,13 +696,13 @@ namespace sctl {
       const Long nds_offset = node_dsp_[elem_offset];
       const Long nds_count = node_dsp_[elem_offset+elem_count-1] + node_cnt_[elem_offset+elem_count-1] - nds_offset;
 
-      const Vector<Long> ChebOrder_src(elem_count, ChebOrder_.begin() + elem_offset, false);
+      const Vector<Long> ElemOrder_src(elem_count, ElemOrder_.begin() + elem_offset, false);
       const Vector<Long> FourierOrder_src(elem_count, FourierOrder_.begin() + elem_offset, false);
       const Vector<Real> panel_len_src(elem_count, panel_len_.begin() + elem_offset, false);
       const Vector<Real> x_src(nds_count*dof, x1.begin() + nds_offset*dof, false);
 
       Vector<Real> x_trg;
-      Resample<dof>(x_trg, ref_geom.panel_len, ref_geom.ChebOrder, ref_geom.FourierOrder, x_src, panel_len_src, ChebOrder_src, FourierOrder_src);
+      Resample<dof>(x_trg, ref_geom.panel_len, ref_geom.ElemOrder, ref_geom.FourierOrder, x_src, panel_len_src, ElemOrder_src, FourierOrder_src);
       for (Long i = 0; i < x_trg.Dim(); i++) x2.PushBack(x_trg[i]);
     }
 
@@ -739,12 +741,12 @@ namespace sctl {
       //const Long nds_offset = node_dsp_[elem_offset];
       //const Long nds_count = node_dsp_[elem_offset+elem_count-1] + node_cnt_[elem_offset+elem_count-1];
 
-      const Vector<Long> ChebOrder_trg(elem_count, ChebOrder_.begin() + elem_offset, false);
+      const Vector<Long> ElemOrder_trg(elem_count, ElemOrder_.begin() + elem_offset, false);
       const Vector<Long> FourierOrder_trg(elem_count, FourierOrder_.begin() + elem_offset, false);
       const Vector<Real> panel_len_trg(elem_count, panel_len_.begin() + elem_offset, false);
 
       Vector<Real> x_trg;
-      Resample<dof>(x_trg, panel_len_trg, ChebOrder_trg, FourierOrder_trg, x_src, ref_geom.panel_len, ref_geom.ChebOrder, ref_geom.FourierOrder);
+      Resample<dof>(x_trg, panel_len_trg, ElemOrder_trg, FourierOrder_trg, x_src, ref_geom.panel_len, ref_geom.ElemOrder, ref_geom.FourierOrder);
       for (Long i = 0; i < x_trg.Dim(); i++) Ax2.PushBack(x_trg[i]);
     }
 
@@ -758,7 +760,7 @@ namespace sctl {
     obj_node_cnt = 0; obj_node_dsp = 0;
     for (Long i = 0; i < Nobj; i++) {
       for (Long j = 0; j < obj_elem_cnt[i]; j++) {
-        obj_node_cnt[i] += ChebOrder[obj_elem_dsp[i]+j];
+        obj_node_cnt[i] += ElemOrder[obj_elem_dsp[i]+j];
       }
     }
     omp_par::scan(obj_node_cnt.begin(), obj_node_dsp.begin(), obj_node_cnt.Dim());
@@ -783,7 +785,7 @@ namespace sctl {
     return r_min;
   }
 
-  template <class Real> template <Integer dof> void RigidBodyList<Real>::Resample(Vector<Real>& x_trg0, const Vector<Real>& panel_len_trg, const Vector<Long>& ChebOrder_trg, const Vector<Long>& FourierOrder_trg, const Vector<Real>& x_src, const Vector<Real>& panel_len_src, const Vector<Long>& ChebOrder_src, const Vector<Long>& FourierOrder_src) {
+  template <class Real> template <Integer dof> void RigidBodyList<Real>::Resample(Vector<Real>& x_trg0, const Vector<Real>& panel_len_trg, const Vector<Long>& ElemOrder_trg, const Vector<Long>& FourierOrder_trg, const Vector<Real>& x_src, const Vector<Real>& panel_len_src, const Vector<Long>& ElemOrder_src, const Vector<Long>& FourierOrder_src) {
     const Long Ns = panel_len_src.Dim();
     const Long Nt = panel_len_trg.Dim();
     if (!Ns || !Nt) return;
@@ -799,18 +801,18 @@ namespace sctl {
         if (panel_len_src[s] > panel_len_trg[t]) {
           src_cnt = 1;
           src_len = panel_len_src[s];
-          src_nds_cnt = ChebOrder_src[s] * FourierOrder_src[s];
+          src_nds_cnt = ElemOrder_src[s] * FourierOrder_src[s];
           while (trg_len < panel_len_src[s] && t+trg_cnt<Nt) {
-            trg_nds_cnt += ChebOrder_trg[t+trg_cnt] * FourierOrder_trg[t+trg_cnt];
+            trg_nds_cnt += ElemOrder_trg[t+trg_cnt] * FourierOrder_trg[t+trg_cnt];
             trg_len += panel_len_trg[t+trg_cnt];
             trg_cnt++;
           }
         } else {
           trg_cnt = 1;
           trg_len = panel_len_trg[t];
-          trg_nds_cnt = ChebOrder_trg[t] * FourierOrder_trg[t];
+          trg_nds_cnt = ElemOrder_trg[t] * FourierOrder_trg[t];
           while (src_len < panel_len_trg[t] && s+src_cnt<Ns) {
-            src_nds_cnt += ChebOrder_src[s+src_cnt] * FourierOrder_src[s+src_cnt];
+            src_nds_cnt += ElemOrder_src[s+src_cnt] * FourierOrder_src[s+src_cnt];
             src_len += panel_len_src[s+src_cnt];
             src_cnt++;
           }
@@ -819,8 +821,8 @@ namespace sctl {
 
         Vector<Real> x_trg_;
         const Vector<Real> x_src_(src_nds_cnt*dof, (Iterator<Real>)x_src.begin() + src_nds_dsp*dof, false);
-        Resample<dof>(x_trg_, Vector<Real>(trg_cnt,(Iterator<Real>)panel_len_trg.begin()+t,false), Vector<Long>(trg_cnt,(Iterator<Long>)ChebOrder_trg.begin()+t,false), Vector<Long>(trg_cnt,(Iterator<Long>)FourierOrder_trg.begin()+t,false),
-                      x_src_, Vector<Real>(src_cnt,(Iterator<Real>)panel_len_src.begin()+s,false), Vector<Long>(src_cnt,(Iterator<Long>)ChebOrder_src.begin()+s,false), Vector<Long>(src_cnt,(Iterator<Long>)FourierOrder_src.begin()+s,false));
+        Resample<dof>(x_trg_, Vector<Real>(trg_cnt,(Iterator<Real>)panel_len_trg.begin()+t,false), Vector<Long>(trg_cnt,(Iterator<Long>)ElemOrder_trg.begin()+t,false), Vector<Long>(trg_cnt,(Iterator<Long>)FourierOrder_trg.begin()+t,false),
+                      x_src_, Vector<Real>(src_cnt,(Iterator<Real>)panel_len_src.begin()+s,false), Vector<Long>(src_cnt,(Iterator<Long>)ElemOrder_src.begin()+s,false), Vector<Long>(src_cnt,(Iterator<Long>)FourierOrder_src.begin()+s,false));
         for (Long i = 0; i < x_trg_.Dim(); i++) x_trg.PushBack(x_trg_[i]);
 
         src_nds_dsp += src_nds_cnt;
@@ -832,7 +834,7 @@ namespace sctl {
       return;
     }
 
-    if (Ns == 1 && Nt == 1 && ChebOrder_src[0]==ChebOrder_trg[0] && FourierOrder_src[0]==FourierOrder_trg[0]) {
+    if (Ns == 1 && Nt == 1 && ElemOrder_src[0]==ElemOrder_trg[0] && FourierOrder_src[0]==FourierOrder_trg[0]) {
       SCTL_ASSERT(panel_len_src[0] == panel_len_trg[0]);
       x_trg0 = x_src;
       return;
@@ -842,9 +844,9 @@ namespace sctl {
       Matrix<Real> Mcheb;
       { // Set Mcheb
         Real trg_offset = 0;
-        Vector<Real> trg_nds, src_nds = ChebQuadRule<Real>::nds(ChebOrder_src[0]) * panel_len_src[0];
+        Vector<Real> trg_nds, src_nds = ChebQuadRule<Real>::nds(ElemOrder_src[0]) * panel_len_src[0];
         for (Long t = 0; t < Nt; t++) {
-          const auto& nds = ChebQuadRule<Real>::nds(ChebOrder_trg[t]);
+          const auto& nds = ChebQuadRule<Real>::nds(ElemOrder_trg[t]);
           for (Long i = 0; i < nds.Dim(); i++) trg_nds.PushBack(trg_offset + nds[i] * panel_len_trg[t]);
           trg_offset += panel_len_trg[t];
         }
@@ -853,60 +855,60 @@ namespace sctl {
         Vector<Real> Vcheb(src_nds.Dim() * trg_nds.Dim(), Mcheb.begin(), false);
         LagrangeInterp<Real>::Interpolate(Vcheb, src_nds, trg_nds);
       }
-      Matrix<Real> x0 = Mcheb.Transpose()*Matrix<Real>(ChebOrder_src[0], FourierOrder_src[0]*dof, (Iterator<Real>)x_src.begin(), false);
+      Matrix<Real> x0 = Mcheb.Transpose()*Matrix<Real>(ElemOrder_src[0], FourierOrder_src[0]*dof, (Iterator<Real>)x_src.begin(), false);
 
       Vector<Real> x_;
       Long x0_offset = 0;
       for (Long i = 0; i < Nt; i++) {
         { // Rearrange x0
-          Matrix<Real> y0(ChebOrder_trg[i] * FourierOrder_src[0], dof, x0.begin() + x0_offset*dof, false);
-          Matrix<Real> y1(dof, ChebOrder_trg[i] * FourierOrder_src[0], x0.begin() + x0_offset*dof, false);
+          Matrix<Real> y0(ElemOrder_trg[i] * FourierOrder_src[0], dof, x0.begin() + x0_offset*dof, false);
+          Matrix<Real> y1(dof, ElemOrder_trg[i] * FourierOrder_src[0], x0.begin() + x0_offset*dof, false);
           y1 = y0.Transpose();
         }
 
-        Vector<Real> x1(dof * ChebOrder_trg[i] * FourierOrder_trg[i]);
+        Vector<Real> x1(dof * ElemOrder_trg[i] * FourierOrder_trg[i]);
         { // x1 <-- Fourier-resample(x0)
           const auto& Mfourier = FourierResample(FourierOrder_src[0], FourierOrder_trg[i]);
-          Matrix<Real> y0(dof * ChebOrder_trg[i], FourierOrder_src[0], x0.begin() + x0_offset*dof, false);
-          Matrix<Real> y1(dof * ChebOrder_trg[i], FourierOrder_trg[i], x1.begin(), false);
+          Matrix<Real> y0(dof * ElemOrder_trg[i], FourierOrder_src[0], x0.begin() + x0_offset*dof, false);
+          Matrix<Real> y1(dof * ElemOrder_trg[i], FourierOrder_trg[i], x1.begin(), false);
           y1 = y0 * Mfourier;
         }
 
         { // Rearrange x1
-          Matrix<Real> y0(dof, ChebOrder_trg[i] * FourierOrder_trg[i], x1.begin(), false);
-          Matrix<Real> y1(ChebOrder_trg[i] * FourierOrder_trg[i], dof, x1.begin(), false);
+          Matrix<Real> y0(dof, ElemOrder_trg[i] * FourierOrder_trg[i], x1.begin(), false);
+          Matrix<Real> y1(ElemOrder_trg[i] * FourierOrder_trg[i], dof, x1.begin(), false);
           y1 = y0.Transpose();
         }
         for (Long j = 0; j < x1.Dim(); j++) x_.PushBack(x1[j]);
 
-        x0_offset += ChebOrder_trg[i] * FourierOrder_src[0];
+        x0_offset += ElemOrder_trg[i] * FourierOrder_src[0];
       }
       x_trg0 = x_;
       return;
     } else { // Nt == 1
-      Vector<Real> src_nds, trg_nds = ChebQuadRule<Real>::nds(ChebOrder_trg[0]) * panel_len_trg[0];
+      Vector<Real> src_nds, trg_nds = ChebQuadRule<Real>::nds(ElemOrder_trg[0]) * panel_len_trg[0];
 
       Vector<Real> x_;
       Real s_offset = 0;
       Long x_src_offset = 0;
       for (Long i = 0; i < Ns; i++) {
-        Vector<Real> x0(ChebOrder_src[i] * FourierOrder_src[i] * dof, (Iterator<Real>)x_src.begin() + x_src_offset*dof);
+        Vector<Real> x0(ElemOrder_src[i] * FourierOrder_src[i] * dof, (Iterator<Real>)x_src.begin() + x_src_offset*dof);
         { // Rearrange x0
-          Matrix<Real> y0(ChebOrder_src[i] * FourierOrder_src[i], dof, x0.begin(), false);
-          Matrix<Real> y1(dof, ChebOrder_src[i] * FourierOrder_src[i], x0.begin(), false);
+          Matrix<Real> y0(ElemOrder_src[i] * FourierOrder_src[i], dof, x0.begin(), false);
+          Matrix<Real> y1(dof, ElemOrder_src[i] * FourierOrder_src[i], x0.begin(), false);
           y1 = y0.Transpose();
         }
 
-        Vector<Real> x1(dof * ChebOrder_src[i] * FourierOrder_trg[0]);
+        Vector<Real> x1(dof * ElemOrder_src[i] * FourierOrder_trg[0]);
         { // x1 <-- Fourier-resample(x0)
           const auto& Mfourier = FourierResample(FourierOrder_src[i], FourierOrder_trg[0]);
-          Matrix<Real> y0(dof * ChebOrder_src[i], FourierOrder_src[i], x0.begin(), false);
-          Matrix<Real> y1(dof * ChebOrder_src[i], FourierOrder_trg[0], x1.begin(), false);
+          Matrix<Real> y0(dof * ElemOrder_src[i], FourierOrder_src[i], x0.begin(), false);
+          Matrix<Real> y1(dof * ElemOrder_src[i], FourierOrder_trg[0], x1.begin(), false);
           y1 = y0 * Mfourier;
         }
         { // Rearrange x1
-          Matrix<Real> y0(dof, ChebOrder_src[i] * FourierOrder_trg[0], x1.begin(), false);
-          Matrix<Real> y1(ChebOrder_src[i] * FourierOrder_trg[0], dof, x1.begin(), false);
+          Matrix<Real> y0(dof, ElemOrder_src[i] * FourierOrder_trg[0], x1.begin(), false);
+          Matrix<Real> y1(ElemOrder_src[i] * FourierOrder_trg[0], dof, x1.begin(), false);
           y1 = y0.Transpose();
         }
 
@@ -914,7 +916,7 @@ namespace sctl {
         { // Chebyshev-resample(x1)
           const Long a = std::lower_bound(trg_nds.begin(), trg_nds.end(), s_offset) - trg_nds.begin();
           const Long b = std::lower_bound(trg_nds.begin(), trg_nds.end(), s_offset + panel_len_src[i]) - trg_nds.begin();
-          Vector<Real> src_nds_ = ChebQuadRule<Real>::nds(ChebOrder_src[i]) * panel_len_src[i] + s_offset;
+          Vector<Real> src_nds_ = ChebQuadRule<Real>::nds(ElemOrder_src[i]) * panel_len_src[i] + s_offset;
           Vector<Real> trg_nds_(b-a, trg_nds.begin() + a, false);
 
           Matrix<Real> Mcheb(src_nds_.Dim(), trg_nds_.Dim());
@@ -928,7 +930,7 @@ namespace sctl {
         }
 
         for (Long j = 0; j < x2.Dim(); j++) x_.PushBack(x2[j]);
-        x_src_offset += ChebOrder_src[i] * FourierOrder_src[i];
+        x_src_offset += ElemOrder_src[i] * FourierOrder_src[i];
         s_offset += panel_len_src[i];
       }
       x_trg0 = x_;
@@ -978,33 +980,33 @@ namespace sctl {
     return M;
   }
 
-  template <class Real> const Matrix<Real>& RigidBodyList<Real>::ChebErrMatrix(const Integer ChebOrder) {
+  template <class Real> const Matrix<Real>& RigidBodyList<Real>::ChebErrMatrix(const Integer ElemOrder) {
     constexpr Integer MaxOrder = 100;
     static Vector<Matrix<Real>> M_lst(MaxOrder+1);
-    SCTL_ASSERT(ChebOrder <= MaxOrder);
+    SCTL_ASSERT(ElemOrder <= MaxOrder);
 
-    Matrix<Real>& M = M_lst[ChebOrder];
+    Matrix<Real>& M = M_lst[ElemOrder];
     #pragma omp critical(SCTL_CHEB_ERR_MAT)
     if (M.Dim(0) * M.Dim(1) == 0) {
       Vector<Real> Mcheb0, Mcheb1;
-      LagrangeInterp<Real>::Interpolate(Mcheb0, ChebQuadRule<Real>::nds(ChebOrder), ChebQuadRule<Real>::nds(ChebOrder-2));
-      LagrangeInterp<Real>::Interpolate(Mcheb1, ChebQuadRule<Real>::nds(ChebOrder-2), ChebQuadRule<Real>::nds(ChebOrder));
-      M = Matrix<Real>(ChebOrder, ChebOrder-2, Mcheb0.begin(), false) * Matrix<Real>(ChebOrder-2, ChebOrder, Mcheb1.begin(), false);
-      for (Long k = 0; k < ChebOrder; k++) M[k][k] -= 1;
+      LagrangeInterp<Real>::Interpolate(Mcheb0, ChebQuadRule<Real>::nds(ElemOrder), ChebQuadRule<Real>::nds(ElemOrder-2));
+      LagrangeInterp<Real>::Interpolate(Mcheb1, ChebQuadRule<Real>::nds(ElemOrder-2), ChebQuadRule<Real>::nds(ElemOrder));
+      M = Matrix<Real>(ElemOrder, ElemOrder-2, Mcheb0.begin(), false) * Matrix<Real>(ElemOrder-2, ElemOrder, Mcheb1.begin(), false);
+      for (Long k = 0; k < ElemOrder; k++) M[k][k] -= 1;
     }
     return M;
   }
 
   template <class Real> void RigidBodyList<Real>::UpdatePointwise(const Vector<Real>& Y_loc) {
-    const Long Nelem = ChebOrder.Dim();
+    const Long Nelem = ElemOrder.Dim();
     SCTL_ASSERT(FourierOrder.Dim() == Nelem);
     if (!Nelem) return;
 
     static constexpr Integer COORD_DIM = 3;
     Vector<Long> cnt0(Nelem), dsp0(Nelem); dsp0[0] = 0;
     Vector<Long> cnt1(Nelem), dsp1(Nelem); dsp1[0] = 0;
-    for (Long i = 0; i < Nelem; i++) cnt0[i] = ChebOrder[i];
-    for (Long i = 0; i < Nelem; i++) cnt1[i] = ChebOrder[i] * FourierOrder[i];
+    for (Long i = 0; i < Nelem; i++) cnt0[i] = ElemOrder[i];
+    for (Long i = 0; i < Nelem; i++) cnt1[i] = ElemOrder[i] * FourierOrder[i];
     omp_par::scan(cnt0.begin(), dsp0.begin(), Nelem);
     omp_par::scan(cnt1.begin(), dsp1.begin(), Nelem);
 
@@ -1013,7 +1015,7 @@ namespace sctl {
 
     Vector<Real> X, R;
     for (Long elem = 0; elem < Nelem; elem++) {
-      for (Long i = 0; i < ChebOrder[elem]; i++) {
+      for (Long i = 0; i < ElemOrder[elem]; i++) {
         StaticArray<Real,COORD_DIM> x;
         for (Long k = 0; k < COORD_DIM; k++) x[k] = 0;
         for (Long j = 0; j < FourierOrder[elem]; j++) {
@@ -1037,13 +1039,13 @@ namespace sctl {
       }
     }
     SCTL_ASSERT(false); // update OrientVec
-    InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, Xc, ChebOrder, FourierOrder, X, R, OrientVec, obj_elem_cnt, comm_);
+    InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, Xc, ElemOrder, FourierOrder, X, R, OrientVec, obj_elem_cnt, comm_);
   }
 
-  template <class Real> void RigidBodyList<Real>::InitGeom(Vector<Real>& X, Vector<Real>& R, Vector<Real>& OrientVec, Vector<Long>& ChebOrder, Vector<Long>& FourierOrder, Vector<Real>& panel_len, Vector<Real>& Mr_lst, Vector<Long>& cnt, Vector<Long>& dsp, const Long Nobj, const Real loop_rad, const Geom& geom_type) {
+  template <class Real> void RigidBodyList<Real>::InitGeom(Vector<Real>& X, Vector<Real>& R, Vector<Real>& OrientVec, Vector<Long>& ElemOrder, Vector<Long>& FourierOrder, Vector<Real>& panel_len, Vector<Real>& Mr_lst, Vector<Long>& cnt, Vector<Long>& dsp, const Long Nobj, const Real loop_rad, const Geom& geom_type) {
     srand48(2);
-    const Long ChebOrder0 = 10;
-    if (1) { // Set ChebOrder, FourierOrder, panel_len, Mr_lst, cnt, dsp (Uniform discretization)
+    const Long ElemOrder0 = 10;
+    if (1) { // Set ElemOrder, FourierOrder, panel_len, Mr_lst, cnt, dsp (Uniform discretization)
       const Long Npanel = 16;
       const Long FourierOrder0 = 16;
 
@@ -1054,11 +1056,11 @@ namespace sctl {
       dsp.ReInit(Nobj); dsp = 0;
       omp_par::scan(cnt.begin(), dsp.begin(), Nobj);
 
-      ChebOrder.ReInit(Nobj * Npanel);
+      ElemOrder.ReInit(Nobj * Npanel);
       FourierOrder.ReInit(Nobj * Npanel);
       panel_len.ReInit(Nobj * Npanel);
 
-      ChebOrder = ChebOrder0;
+      ElemOrder = ElemOrder0;
       FourierOrder = FourierOrder0;
       panel_len = 1/(Real)Npanel;
     } else { // Adaptive discretization
@@ -1178,12 +1180,12 @@ namespace sctl {
       dsp.ReInit(Nobj); dsp = 0;
       omp_par::scan(cnt.begin(), dsp.begin(), Nobj);
 
-      ChebOrder.ReInit(0);
+      ElemOrder.ReInit(0);
       FourierOrder.ReInit(0);
       panel_len.ReInit(0);
       for (Long i = 0; i < Nobj; i++) {
         for (Long j = 0; j < cnt[i]; j++) {
-          ChebOrder.PushBack(ChebOrder0);
+          ElemOrder.PushBack(ElemOrder0);
           FourierOrder.PushBack(FourierOrder0[j]);
           panel_len.PushBack(panel_len0[j]);
         }
@@ -1248,9 +1250,9 @@ namespace sctl {
 
       Real s_dsp = 0;
       for (Long j = 0; j < cnt[i]; j++) { // Set X, OrientVec, R
-        const Long ChebOrder_ = ChebOrder[dsp[i]+j];
-        const auto& nds = SlenderElemList<Real>::CenterlineNodes(ChebOrder_);
-        for (Long k = 0; k < ChebOrder_; k++) {
+        const Long ElemOrder_ = ElemOrder[dsp[i]+j];
+        const auto& nds = SlenderElemList<Real>::CenterlineNodes(ElemOrder_);
+        for (Long k = 0; k < ElemOrder_; k++) {
           Real x, y, z, ex, ey, ez, r;
           Real s = s_dsp + nds[k]*panel_len[dsp[i]+j];
           if (geom_type == Geom::Loop) {
@@ -1321,13 +1323,13 @@ namespace sctl {
     }
   }
 
-  template <class Real> template <class ValueType> void RigidBodyList<Real>::InitElemList(Long& loc_elem_cnt, Long& loc_elem_dsp, SlenderElemList<Real>& elem_lst, const Vector<Long>& ChebOrder, const Vector<Long>& FourierOrder, const Vector<ValueType>& X, const Vector<ValueType>& R, const Vector<ValueType>& OrientVec, const Comm comm) {
+  template <class Real> template <class ValueType> void RigidBodyList<Real>::InitElemList(Long& loc_elem_cnt, Long& loc_elem_dsp, SlenderElemList<Real>& elem_lst, const Vector<Long>& ElemOrder, const Vector<Long>& FourierOrder, const Vector<ValueType>& X, const Vector<ValueType>& R, const Vector<ValueType>& OrientVec, const Comm comm) {
     // TODO: parallelize
 
-    const Long Nelem = ChebOrder.Dim();
+    const Long Nelem = ElemOrder.Dim();
     if (Nelem) { // Set loc_elem_cnt, loc_elem_dsp // TODO: use better cost estimate
       Vector<Long> node_cnt(Nelem), node_dsp(Nelem); node_dsp = 0;
-      for (Long i = 0; i < Nelem; i++) node_cnt[i] = ChebOrder[i] * FourierOrder[i] * FourierOrder[i];
+      for (Long i = 0; i < Nelem; i++) node_cnt[i] = ElemOrder[i] * FourierOrder[i] * FourierOrder[i];
       omp_par::scan(node_cnt.begin(), node_dsp.begin(), Nelem);
       const Long Nnodes = node_cnt[Nelem-1] + node_dsp[Nelem-1];
 
@@ -1367,16 +1369,16 @@ namespace sctl {
     }
 
     { // Set elem_lst
-      const Vector<Long> LocChebOrder(loc_elem_cnt, (Iterator<Long>)ChebOrder.begin() + loc_elem_dsp, false);
+      const Vector<Long> LocElemOrder(loc_elem_cnt, (Iterator<Long>)ElemOrder.begin() + loc_elem_dsp, false);
       const Vector<Long> LocFourierOrder(loc_elem_cnt, (Iterator<Long>)FourierOrder.begin() + loc_elem_dsp, false);
 
       Long dsp = 0, cnt = 0;
-      for (Long i = 0; i < loc_elem_dsp; i++) dsp += ChebOrder[i];
-      for (Long i = 0; i < loc_elem_cnt; i++) cnt += ChebOrder[loc_elem_dsp+i];
+      for (Long i = 0; i < loc_elem_dsp; i++) dsp += ElemOrder[i];
+      for (Long i = 0; i < loc_elem_cnt; i++) cnt += ElemOrder[loc_elem_dsp+i];
       const Vector<ValueType> X_(cnt*COORD_DIM, (Iterator<ValueType>)X.begin() + dsp*COORD_DIM, false);
       const Vector<ValueType> R_(cnt, (Iterator<ValueType>)R.begin() + dsp, false);
       const Vector<ValueType> OrientVec_(cnt*COORD_DIM, (Iterator<ValueType>)OrientVec.begin() + dsp*COORD_DIM, false);
-      elem_lst.template Init<ValueType>(LocChebOrder, LocFourierOrder, X_, R_, OrientVec_);
+      elem_lst.template Init<ValueType>(LocElemOrder, LocFourierOrder, X_, R_, OrientVec_);
     }
   }
 
@@ -1657,7 +1659,7 @@ namespace sctl {
 
         Vector<Real> X, sigma;
         geom.GetElemList().GetNodeCoord(&X, nullptr, nullptr);
-        const Vector<Real> Ubg = bg_flow.Velocity(X);
+        const Vector<Real> Ubg = bg_flow(X);
         const Vector<Real> U = ComputeVelocity(geom, Ubg, gmres_tol, quad_tol, &sigma);
         geom.GetRigidBodyMotion(Uc, Omega, U);
 
@@ -1745,7 +1747,7 @@ namespace sctl {
       bool prof_state = Profile::Enable(false);
       Vector<Real> X, sigma;
       geom.GetElemList().GetNodeCoord(&X, nullptr, nullptr);
-      const Vector<Real> Ubg = bg_flow.Velocity(X);
+      const Vector<Real> Ubg = bg_flow(X);
       ComputeVelocity(geom, Ubg, gmres_tol, quad_tol);
       Profile::Enable(prof_state);
     }
@@ -1760,7 +1762,7 @@ namespace sctl {
       { // Compute U, sigma, Ngmres, Nunknown
         Vector<Real> X;
         geom_.GetElemList().GetNodeCoord(&X, nullptr, nullptr);
-        const Vector<Real> Ubg = bg_flow.Velocity(X);
+        const Vector<Real> Ubg = bg_flow(X);
         U = ComputeVelocity(geom_, Ubg, gmres_tol, quad_tol, &sigma, &Ngmres);
 
         Nunknown = [this,&sigma]() {
@@ -1860,7 +1862,10 @@ namespace sctl {
       precond_geom.GetElemList().WriteVTK(out_path + "./Sprecond", Vector<Real>(), comm);
     }
 
-    const BgFlow<Real> bg_flow(comm);
+    const auto bg_flow = [](const Vector<Real>& Xt){
+      Vector<Real> U(Xt.Dim()); U = 0;
+      return U;
+    };
     const Mobility<Real> stokes_mobility(comm, 1.0);
     if (geom_type == RigidBodyList<Real>::Geom::Loop) {
       stokes_mobility.SetSLScaling(30.0);

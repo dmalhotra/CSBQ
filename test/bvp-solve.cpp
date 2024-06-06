@@ -71,17 +71,17 @@ template <class Real, class KerSL, class KerDL, class KerSLDL, class KerM2M=KerS
   elem_lst0.template Read<RefValueType>(fname, comm);
   if (UNIF_TANGLE) { // Initialize elem_lst0 (uniform discretization of tangle)
     const Long Npanel = 8192;
-    const Long ChebOrder_ = 10;
+    const Long ElemOrder_ = 10;
     const Long FourierOrder_ = 44; // 12
 
-    Vector<Long> ChebOrder(Npanel); ChebOrder = ChebOrder_;
+    Vector<Long> ElemOrder(Npanel); ElemOrder = ElemOrder_;
     Vector<Long> FourierOrder(Npanel); FourierOrder = FourierOrder_;
     Vector<RefValueType> panel_len(Npanel); panel_len = 1/(RefValueType)Npanel;
-    GeomTangle<RefValueType>(elem_lst0, panel_len, FourierOrder, comm, ChebOrder_);
+    GeomTangle<RefValueType>(elem_lst0, panel_len, FourierOrder, comm, ElemOrder_);
   }
 
   Vector<Real> Xt;
-  CubeVolumeVis<Real> cube_vol(CubeResolution, 3.0);
+  CubeVolumeVis<Real> cube_vol(CubeResolution, 3.0, Comm::Self());
   { // Set Xt
     if (!comm.Rank()) Xt = cube_vol.GetCoord();
     const Long N = cube_vol.GetCoord().Dim()/3;
@@ -207,21 +207,21 @@ template <class Real, class KerSL, class KerDL, class KerSLDL, class KerM2M=KerS
       }
     }
 
-    cube_vol.WriteVTK("vis/I-cube", I, Comm::Self());
-    cube_vol.WriteVTK("vis/U-cube", U, Comm::Self());
-    cube_vol.WriteVTK("vis/err-cube", Uerr, Comm::Self());
+    cube_vol.WriteVTK("vis/I-cube", I);
+    cube_vol.WriteVTK("vis/U-cube", U);
+    cube_vol.WriteVTK("vis/err-cube", Uerr);
     { // Write quad-err-on-surf
       SlenderElemList<Real> elem_lst0;
       elem_lst0.template Read<RefValueType>(fname, Comm::Self());
       if (UNIF_TANGLE) { // Initialize elem_lst0 (uniform discretization of tangle)
         const Long Npanel = 8192;
-        const Long ChebOrder_ = 10;
+        const Long ElemOrder_ = 10;
         const Long FourierOrder_ = 44; // 12
 
-        Vector<Long> ChebOrder(Npanel); ChebOrder = ChebOrder_;
+        Vector<Long> ElemOrder(Npanel); ElemOrder = ElemOrder_;
         Vector<Long> FourierOrder(Npanel); FourierOrder = FourierOrder_;
         Vector<RefValueType> panel_len(Npanel); panel_len = 1/(RefValueType)Npanel;
-        GeomTangle<RefValueType>(elem_lst0, panel_len, FourierOrder, Comm::Self(), ChebOrder_);
+        GeomTangle<RefValueType>(elem_lst0, panel_len, FourierOrder, Comm::Self(), ElemOrder_);
       }
       elem_lst0.WriteVTK("vis/quad-err-on-surf", I0, Comm::Self());
     }
@@ -266,10 +266,10 @@ template <class Real> void tangle_adaptive_discretize(const Long Npanel, Real ge
   RigidBodyList<Real> geom(comm);
   { // Set geom
     constexpr Integer COORD_DIM = 3;
-    const Long ChebOrder_ = 10;
+    const Long ElemOrder_ = 10;
     const Long FourierOrder_ = 12;
 
-    Vector<Long> ChebOrder(Npanel); ChebOrder = ChebOrder_;
+    Vector<Long> ElemOrder(Npanel); ElemOrder = ElemOrder_;
     Vector<Long> FourierOrder(Npanel); FourierOrder = FourierOrder_;
     Vector<Real> panel_len(Npanel); panel_len = 1/(Real)Npanel;
 
@@ -277,13 +277,13 @@ template <class Real> void tangle_adaptive_discretize(const Long Npanel, Real ge
     { // Set X, R, OrientVec
       Vector<Real> X_surf, Xn;
       SlenderElemList<Real> elem_lst;
-      GeomTangle(elem_lst, panel_len, FourierOrder, comm, ChebOrder_);
+      GeomTangle(elem_lst, panel_len, FourierOrder, comm, ElemOrder_);
       elem_lst.GetNodeCoord(&X_surf, &Xn, nullptr);
 
-      R.ReInit(Npanel*ChebOrder_);
-      X.ReInit(Npanel*ChebOrder_*COORD_DIM);
-      OrientVec.ReInit(Npanel*ChebOrder_*COORD_DIM);
-      for (Long i = 0; i < Npanel*ChebOrder_; i++) {
+      R.ReInit(Npanel*ElemOrder_);
+      X.ReInit(Npanel*ElemOrder_*COORD_DIM);
+      OrientVec.ReInit(Npanel*ElemOrder_*COORD_DIM);
+      for (Long i = 0; i < Npanel*ElemOrder_; i++) {
         Real R2 = 0;
         for (Integer k = 0; k < COORD_DIM; k++) {
           Real sum = 0;
@@ -303,10 +303,13 @@ template <class Real> void tangle_adaptive_discretize(const Long Npanel, Real ge
     for (Integer i = 0; i < COORD_DIM; i++) Mr_lst[i*COORD_DIM+i] = 1;
     Vector<Long> obj_elem_cnt(1); obj_elem_cnt = Npanel;
 
-    geom.Init(obj_elem_cnt, Xc, Mr_lst, ChebOrder, FourierOrder, panel_len, X, R, OrientVec);
+    geom.Init(obj_elem_cnt, Xc, Mr_lst, ElemOrder, FourierOrder, panel_len, X, R, OrientVec);
   }
 
-  const BgFlow<Real> bg_flow(comm);
+  const auto bg_flow = [](const Vector<Real>& Xt){
+    Vector<Real> U(Xt.Dim()); U = 0;
+    return U;
+  };
   const Mobility<Real> stokes_mobility(comm, 1.0);
   stokes_mobility.AdaptiveTimeStep(geom, dt, T, bg_flow, ts_order, ts_tol, quad_tol, gmres_tol, geom_tol, out_path, start_idx);
 
@@ -355,7 +358,7 @@ is written to a VTK file in the './vis' folder\n", comm);
 
     if (conv == false) {
       SlenderElemList<Real> elem_lst0;
-      CubeVolumeVis<Real> cube_vol(50, 1.5);
+      CubeVolumeVis<Real> cube_vol(50, 1.5, comm);
       if (fname.empty()) { // Initialize elem_lst0
         GeomEllipse(elem_lst0, Vector<Real>(), Vector<Long>(), comm, (Real)1, (Real)1, (Real)thickness, 10);
       } else {
@@ -364,11 +367,11 @@ is written to a VTK file in the './vis' folder\n", comm);
       if ((!strcmp(ker.c_str(), "Stokes"))) {
         if (!comm.Rank()) std::cout<<"\n\n## Solving : (1/2 + D + S * SLscaling) sigma = V0    (Stokes exterior Dirichlet BVP)\n";
         Vector<Real> U = bvp_solve<Real, Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FSxU, Stokes3D_FxU, Stokes3D_FxU>(elem_lst0, tol, gmres_tol, SLScaling, Vector<Real>(), cube_vol.GetCoord(), comm);
-        cube_vol.WriteVTK("vis/BVP-cube", U, comm);
+        cube_vol.WriteVTK("vis/BVP-cube", U);
       } else if ((!strcmp(ker.c_str(), "Laplace"))) {
         if (!comm.Rank()) std::cout<<"\n\n## Solving : (1/2 + D + S * scaling) sigma = V0    (Laplace exterior Dirichlet BVP)\n";
         Vector<Real> U = bvp_solve<Real, Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxU, Laplace3D_FxU, Laplace3D_FxU, Laplace3D_FxU, Laplace3D_FxU>(elem_lst0, tol, gmres_tol, SLScaling, Vector<Real>(), cube_vol.GetCoord(), comm);
-        cube_vol.WriteVTK("vis/BVP-cube", U, comm);
+        cube_vol.WriteVTK("vis/BVP-cube", U);
       } else {
         if (!comm.Rank()) std::cout<<"Unknown kernel "<<ker<<'\n';
       }

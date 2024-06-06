@@ -8,7 +8,7 @@ constexpr Integer PERIODIC_REPEAT_COUNT = 3000; // for cylinder
 constexpr Integer N_PANELS = 8; // for torus
 
 template <class Real> void GeomCylinder(SlenderElemList<Real>& elem_lst0, const Comm& comm, const Real thickness, const int npan) {
-  const Long ChebOrder = 10;
+  const Long ElemOrder = 10;
   Vector<Long> FourierOrder(npan); FourierOrder = 2*FOURIER_ORDER+4;
 
   const Long pid = comm.Rank();
@@ -27,7 +27,7 @@ template <class Real> void GeomCylinder(SlenderElemList<Real>& elem_lst0, const 
     Vector<Real> coord, radius;
     Vector<Long> cheb_order, fourier_order;
     for (Long k = k0; k < k1; k++) { // Init elem_lst0
-      const auto& nds = SlenderElemList<Real>::CenterlineNodes(ChebOrder);
+      const auto& nds = SlenderElemList<Real>::CenterlineNodes(ElemOrder);
       for (Long i = 0; i < nds.Dim(); i++) {
         Real x, y, z, r;
         geom(x, y, z, r, 2*const_pi<Real>()*((k-npan/2)+nds[i])*(1/(Real)(2*FOURIER_ORDER)));
@@ -36,7 +36,7 @@ template <class Real> void GeomCylinder(SlenderElemList<Real>& elem_lst0, const 
         coord.PushBack(z);
         radius.PushBack(r);
       }
-      cheb_order.PushBack(ChebOrder);
+      cheb_order.PushBack(ElemOrder);
       fourier_order.PushBack(FourierOrder[k]);
     }
     elem_lst0.Init(cheb_order, fourier_order, coord, radius);
@@ -49,7 +49,7 @@ template <class Real> void GeomCylinder(SlenderElemList<Real>& elem_lst0, const 
   //  z = 2*const_pi<Real>()*(theta-0.5)*npan * (1/(Real)(2*FOURIER_ORDER));
   //  r = thickness/2;
   //};
-  //GenericGeom(elem_lst0, geom_fn, Vector<Real>(), Vector<Long>(), comm, ChebOrder, 2*FOURIER_ORDER+4, npan, (Real)1);
+  //GenericGeom(elem_lst0, geom_fn, Vector<Real>(), Vector<Long>(), comm, ElemOrder, 2*FOURIER_ORDER+4, npan, (Real)1);
 }
 
 template <class Real> void test_laplace(const Comm& comm, Real quad_eps, Real radius, Long geom) { // Fourier basis
@@ -228,7 +228,7 @@ template <class Real> void test_laplace(const Comm& comm, Real quad_eps, Real ra
 }
 
 template <class Real> void test_stokes(const Comm& comm, Real quad_eps, Real radius, Long geom) { // Nodal basis
-  const Long ChebOrder = 10;
+  const Long ElemOrder = 10;
   const Stokes3D_FxU ker_FxU;
   const Stokes3D_DxU ker_DxU;
   BoundaryIntegralOp<Real,Stokes3D_FxU> BIOp_FxU(ker_FxU, false, comm);
@@ -252,7 +252,7 @@ template <class Real> void test_stokes(const Comm& comm, Real quad_eps, Real rad
         SCTL_ASSERT_MSG(false, "Invalid geometry option.");
       }
     };
-    GenericGeom(elem_lst, geom_fn, Vector<Real>(), Vector<Long>(), comm, ChebOrder, FOURIER_ORDER, N_PANELS, (Real)1);
+    GenericGeom(elem_lst, geom_fn, Vector<Real>(), Vector<Long>(), comm, ElemOrder, FOURIER_ORDER, N_PANELS, (Real)1);
   }
   elem_lst.GetNodeCoord(&Xtrg, nullptr, nullptr);
   elem_lst.WriteVTK("vis/X", Vector<Real>(), comm);

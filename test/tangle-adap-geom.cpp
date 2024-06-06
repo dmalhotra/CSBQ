@@ -19,7 +19,7 @@ template <class Real> void test(Real geom_tol) {
 
   auto build_geom = [&comm, geom_tol](Vector<Real> panel_len_, Vector<Long> FourierOrder) { // Set geom
     constexpr Integer COORD_DIM = 3;
-    const Long ChebOrder_ = 10;
+    const Long ElemOrder_ = 10;
     const Long FourierOrder_ = 14;
 
     Vector<QuadReal> panel_len, X, R, OrientVec;
@@ -35,9 +35,9 @@ template <class Real> void test(Real geom_tol) {
           FourierOrder.ReInit(panel_len.Dim());
           FourierOrder = FourierOrder_;
         }
-        GeomTangle(elem_lst, panel_len, FourierOrder, comm, ChebOrder_);
+        GeomTangle(elem_lst, panel_len, FourierOrder, comm, ElemOrder_);
       } else {
-        GeomTangle<QuadReal>(elem_lst, Vector<QuadReal>(), Vector<Long>(), comm, ChebOrder_, geom_tol*1e-2);
+        GeomTangle<QuadReal>(elem_lst, Vector<QuadReal>(), Vector<Long>(), comm, ElemOrder_, geom_tol*1e-2);
       }
 
       Vector<QuadReal> X_surf, Xn;
@@ -45,14 +45,14 @@ template <class Real> void test(Real geom_tol) {
       elem_lst.GetNodeCoord(&X_surf, &Xn, &elem_wise_node_cnt);
       const Long Npanel = elem_wise_node_cnt.Dim();
 
-      R.ReInit(Npanel*ChebOrder_);
-      X.ReInit(Npanel*ChebOrder_*COORD_DIM);
-      OrientVec.ReInit(Npanel*ChebOrder_*COORD_DIM);
+      R.ReInit(Npanel*ElemOrder_);
+      X.ReInit(Npanel*ElemOrder_*COORD_DIM);
+      OrientVec.ReInit(Npanel*ElemOrder_*COORD_DIM);
       Long node_offset = 0;
       for (Long i0 = 0; i0 < Npanel; i0++) {
-        const Long FourierOrder_ = elem_wise_node_cnt[i0] / ChebOrder_;
-        for (Long i1 = 0; i1 < ChebOrder_; i1++) {
-          Long i = i0 * ChebOrder_ + i1;
+        const Long FourierOrder_ = elem_wise_node_cnt[i0] / ElemOrder_;
+        for (Long i1 = 0; i1 < ElemOrder_; i1++) {
+          Long i = i0 * ElemOrder_ + i1;
           QuadReal R2 = 0;
           for (Integer k = 0; k < COORD_DIM; k++) {
             QuadReal sum = 0;
@@ -65,16 +65,16 @@ template <class Real> void test(Real geom_tol) {
           }
           R[i] = sctl::sqrt<QuadReal>(R2);
         }
-        node_offset += ChebOrder_ * FourierOrder_;
+        node_offset += ElemOrder_ * FourierOrder_;
       }
     }
-    const Long Npanel = R.Dim()/ChebOrder_;
+    const Long Npanel = R.Dim()/ElemOrder_;
 
     Vector<QuadReal> Mr_lst(COORD_DIM*COORD_DIM); Mr_lst = 0;
     for (Integer i = 0; i < COORD_DIM; i++) Mr_lst[i*COORD_DIM+i] = 1;
     Vector<Long> obj_elem_cnt(1); obj_elem_cnt = Npanel;
 
-    Vector<Long> ChebOrder(Npanel); ChebOrder = ChebOrder_;
+    Vector<Long> ElemOrder(Npanel); ElemOrder = ElemOrder_;
     if (FourierOrder.Dim() != Npanel) {
       FourierOrder.ReInit(Npanel);
       FourierOrder = FourierOrder_;
@@ -84,7 +84,7 @@ template <class Real> void test(Real geom_tol) {
       panel_len = 1;
     }
     RigidBodyList<Real> geom(comm);
-    geom.template Init<QuadReal>(obj_elem_cnt, Mr_lst, ChebOrder, FourierOrder, panel_len, X, R, OrientVec);
+    geom.template Init<QuadReal>(obj_elem_cnt, Mr_lst, ElemOrder, FourierOrder, panel_len, X, R, OrientVec);
     return geom;
   };
   RigidBodyList<Real> geom;
@@ -93,7 +93,10 @@ template <class Real> void test(Real geom_tol) {
     geom = build_geom(panel_len, Vector<Long>());
   }
 
-  const BgFlow<Real> bg_flow(comm);
+  const auto bg_flow = [](const Vector<Real>& Xt){
+    Vector<Real> U(Xt.Dim()); U = 0;
+    return U;
+  };
   const Mobility<Real> stokes_mobility(comm, 1.0);
   stokes_mobility.SetSLScaling(25);
 
@@ -131,14 +134,14 @@ template <class Real> void test(Real geom_tol) {
   geom_tol_str << geom_tol;
   SlenderElemList<QuadReal> elem_lst;
   { // Set elem_lst
-    const Long ChebOrder_ = 10;
+    const Long ElemOrder_ = 10;
     const auto FourierOrder = geom.FourierOrder;
     const auto panel_len_ = geom.panel_len;
     Vector<QuadReal> panel_len(panel_len_.Dim());
     for (Long i = 0; i < panel_len.Dim(); i++) {
       panel_len[i] = (QuadReal)panel_len_[i];
     }
-    GeomTangle(elem_lst, panel_len, FourierOrder, comm, ChebOrder_);
+    GeomTangle(elem_lst, panel_len, FourierOrder, comm, ElemOrder_);
   }
   elem_lst.Write(std::string("data/tangle/tangle_")+geom_tol_str.str(), comm);
 

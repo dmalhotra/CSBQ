@@ -1,5 +1,7 @@
 #include <random>
 
+#include "csbq/slender_element.cpp"
+
 namespace sctl {
 
 template <class Real, class Kernel> void double_layer_test(const SlenderElemList<Real>& elem_lst0, const Comm& comm, Real tol) { // Double-layer identity test
@@ -223,12 +225,12 @@ template <class Real, class Ker> Vector<Real> bvp_solve_combined(const SlenderEl
   return Utrg;
 }
 
-template <class ValueType, class Real, class GeomFn> void GenericGeom(SlenderElemList<Real>& elem_lst0, const GeomFn& geom_fn, Vector<ValueType> panel_len, Vector<Long> FourierOrder, const Comm& comm, const Long ChebOrder, const Long DefaultFourierOrder, const Long DefaultNpanel, const ValueType s_len) {
+template <class ValueType, class Real, class GeomFn> void GenericGeom(SlenderElemList<Real>& elem_lst0, const GeomFn& geom_fn, Vector<ValueType> panel_len, Vector<Long> FourierOrder, const Comm& comm, const Long ElemOrder, const Long DefaultFourierOrder, const Long DefaultNpanel, const ValueType s_len) {
   int Npanel = panel_len.Dim();
   if (!Npanel) { // use DefaultNpanel of equal length
     panel_len.ReInit(DefaultNpanel);
     panel_len = s_len/(ValueType)panel_len.Dim();
-    GenericGeom<ValueType,Real,GeomFn>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, DefaultFourierOrder, DefaultNpanel, s_len);
+    GenericGeom<ValueType,Real,GeomFn>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ElemOrder, DefaultFourierOrder, DefaultNpanel, s_len);
     return;
   }
   if (FourierOrder.Dim() != Npanel) { // use DefaultFourierOrder
@@ -248,7 +250,7 @@ template <class ValueType, class Real, class GeomFn> void GenericGeom(SlenderEle
     Vector<ValueType> coord, radius;
     Vector<Long> cheb_order, fourier_order;
     for (Long k = k0; k < k1; k++) { // Init elem_lst0
-      const auto& nds = SlenderElemList<ValueType>::CenterlineNodes(ChebOrder);
+      const auto& nds = SlenderElemList<ValueType>::CenterlineNodes(ElemOrder);
       for (Long i = 0; i < nds.Dim(); i++) {
         ValueType x, y, z, r;
         geom_fn(x, y, z, r, panel_dsp[k]+nds[i]*panel_len[k]);
@@ -257,16 +259,16 @@ template <class ValueType, class Real, class GeomFn> void GenericGeom(SlenderEle
         coord.PushBack(y);
         coord.PushBack(z);
       }
-      cheb_order.PushBack(ChebOrder);
+      cheb_order.PushBack(ElemOrder);
       fourier_order.PushBack(FourierOrder[k]);
     }
     elem_lst0.template Init<ValueType>(cheb_order, fourier_order, coord, radius);
   }
 }
 
-template <class ValueType, class Real, class GeomFn> void GenericGeomAdap(SlenderElemList<Real>& elem_lst0, const GeomFn& geom_fn, ValueType tol, const Comm& comm, const Long ChebOrder, const Long DefaultFourierOrder, const ValueType s_len) {
-  const auto& nds1 = SlenderElemList<ValueType>::CenterlineNodes(ChebOrder);
-  const auto& nds2 = SlenderElemList<ValueType>::CenterlineNodes(2*ChebOrder);
+template <class ValueType, class Real, class GeomFn> void GenericGeomAdap(SlenderElemList<Real>& elem_lst0, const GeomFn& geom_fn, ValueType tol, const Comm& comm, const Long ElemOrder, const Long DefaultFourierOrder, const ValueType s_len) {
+  const auto& nds1 = SlenderElemList<ValueType>::CenterlineNodes(ElemOrder);
+  const auto& nds2 = SlenderElemList<ValueType>::CenterlineNodes(2*ElemOrder);
 
   Matrix<ValueType> Minterp(nds1.Dim(), nds2.Dim());
   Vector<ValueType> Minterp_(nds1.Dim()*nds2.Dim(), Minterp.begin(), false);
@@ -274,7 +276,7 @@ template <class ValueType, class Real, class GeomFn> void GenericGeomAdap(Slende
 
   ValueType err = tol + 1;
   Vector<ValueType> max_err(4), max_val(4);
-  Matrix<ValueType> X1(4,ChebOrder), X2(4,2*ChebOrder);
+  Matrix<ValueType> X1(4,ElemOrder), X2(4,2*ElemOrder);
   Vector<ValueType> panel_len(1); panel_len = s_len;
   while(err > tol) {
     err = 0;
@@ -314,10 +316,10 @@ template <class ValueType, class Real, class GeomFn> void GenericGeomAdap(Slende
     panel_len.Swap(panel_len_new);
   }
 
-  GenericGeom<ValueType>(elem_lst0, geom_fn, panel_len, Vector<Long>(), comm, ChebOrder, DefaultFourierOrder, 0, s_len);
+  GenericGeom<ValueType>(elem_lst0, geom_fn, panel_len, Vector<Long>(), comm, ElemOrder, DefaultFourierOrder, 0, s_len);
 }
 
-template <class ValueType, class Real> void GeomEllipse(SlenderElemList<Real>& elem_lst0, Vector<ValueType> panel_len, Vector<Long> FourierOrder, const Comm& comm, const ValueType Rmaj, const ValueType Rmin, const ValueType thickness, const Long ChebOrder) {
+template <class ValueType, class Real> void GeomEllipse(SlenderElemList<Real>& elem_lst0, Vector<ValueType> panel_len, Vector<Long> FourierOrder, const Comm& comm, const ValueType Rmaj, const ValueType Rmin, const ValueType thickness, const Long ElemOrder) {
   auto loop_geom = [Rmaj,Rmin,thickness](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType s){
     ValueType theta = 2*const_pi<ValueType>()*s;
     x = Rmaj * cos<ValueType>(theta);
@@ -325,10 +327,10 @@ template <class ValueType, class Real> void GeomEllipse(SlenderElemList<Real>& e
     z = 0;
     r = thickness/2;
   };
-  GenericGeom<ValueType>(elem_lst0, loop_geom, panel_len, FourierOrder, comm, ChebOrder, 14, 16, (ValueType)1);
+  GenericGeom<ValueType>(elem_lst0, loop_geom, panel_len, FourierOrder, comm, ElemOrder, 14, 16, (ValueType)1);
 }
 
-template <class ValueType, class Real> void GeomTouchingTori(SlenderElemList<Real>& elem_lst0, Vector<ValueType> panel_len, Vector<Long> FourierOrder, const Comm& comm, const ValueType separation, const Long ChebOrder) {
+template <class ValueType, class Real> void GeomTouchingTori(SlenderElemList<Real>& elem_lst0, Vector<ValueType> panel_len, Vector<Long> FourierOrder, const Comm& comm, const ValueType separation, const Long ElemOrder) {
   auto geom_fn = [separation](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType s){
     auto loop_geom1 = [](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType theta, ValueType x_shift){
       x = 2*cos<ValueType>(theta)+x_shift;
@@ -345,10 +347,10 @@ template <class ValueType, class Real> void GeomTouchingTori(SlenderElemList<Rea
     if (s<1) loop_geom1(x, y, z, r, 2*const_pi<ValueType>()*s, -(1.875-separation/2));
     else     loop_geom2(x, y, z, r, 2*const_pi<ValueType>()*s,  (1.875-separation/2));
   };
-  GenericGeom<ValueType>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 32, (ValueType)2);
+  GenericGeom<ValueType>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ElemOrder, 14, 32, (ValueType)2);
 }
 
-template <class ValueType, class Real> void GeomTangle(SlenderElemList<Real>& elem_lst0, Vector<ValueType> panel_len, Vector<Long> FourierOrder, const Comm& comm, const Long ChebOrder, ValueType tol) {
+template <class ValueType, class Real> void GeomTangle(SlenderElemList<Real>& elem_lst0, Vector<ValueType> panel_len, Vector<Long> FourierOrder, const Comm& comm, const Long ElemOrder, ValueType tol) {
   std::default_random_engine g;
   g.seed(0);         // fix random seed
   std::normal_distribution<double> randn(0.0,1.0);
@@ -377,20 +379,20 @@ template <class ValueType, class Real> void GeomTangle(SlenderElemList<Real>& el
     r = ((ValueType)0.005) * (((ValueType)2)+sin<ValueType>(theta+sqrt<ValueType>(2)));
   };
   if (tol <= 0) {
-    GenericGeom<ValueType>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 40, (ValueType)1);
+    GenericGeom<ValueType>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ElemOrder, 14, 40, (ValueType)1);
   } else {
-    GenericGeomAdap<ValueType>(elem_lst0, geom_fn, tol, comm, ChebOrder, 14, (ValueType)1);
+    GenericGeomAdap<ValueType>(elem_lst0, geom_fn, tol, comm, ElemOrder, 14, (ValueType)1);
   }
 }
 
-template <class ValueType, class Real> void GeomSphere(SlenderElemList<Real>& elem_lst0, Vector<ValueType> panel_len, Vector<Long> FourierOrder, const Comm& comm, const ValueType R, const Long ChebOrder) {
+template <class ValueType, class Real> void GeomSphere(SlenderElemList<Real>& elem_lst0, Vector<ValueType> panel_len, Vector<Long> FourierOrder, const Comm& comm, const ValueType R, const Long ElemOrder) {
   auto geom_fn = [R](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType theta){
     x = R * cos<ValueType>(theta/2);
     y = 0;
     z = 0;
     r = R * sin<ValueType>(theta/2);
   };
-  GenericGeom<ValueType>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ChebOrder, 14, 24, (ValueType)1);
+  GenericGeom<ValueType>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ElemOrder, 14, 24, (ValueType)1);
 }
 
 

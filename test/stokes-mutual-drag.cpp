@@ -26,29 +26,29 @@ template <class Real> void test(const Long test_case, const Real eps, const Real
 
   const Long Nobj = 2;
   const Real SL_scal = 1/eps;
-  const Long DefaultChebOrder = 10;
+  const Long DefaultElemOrder = 10;
   const Long DefaultFourierOrder = 48;
   const Long DefaultElemCount = 128;
 
   RigidBodyList<Real> geom(comm);
   { // Init geom
-    Vector<Long> obj_elem_cnt(Nobj), ChebOrder(Nobj*DefaultElemCount), FourierOrder(Nobj*DefaultElemCount);
+    Vector<Long> obj_elem_cnt(Nobj), ElemOrder(Nobj*DefaultElemCount), FourierOrder(Nobj*DefaultElemCount);
     obj_elem_cnt = DefaultElemCount;
-    ChebOrder = DefaultChebOrder;
+    ElemOrder = DefaultElemOrder;
     FourierOrder = DefaultFourierOrder;
 
     Vector<Real> Mr_lst, panel_len(Nobj * DefaultElemCount);
     RigidBodyList<Real>::RotationMatrix(Mr_lst, Vector<Real>(Nobj*COORD_DIM), 0);
     panel_len = Nobj / (Real)panel_len.Dim();
 
-    Vector<Real> R(Nobj * DefaultElemCount * DefaultChebOrder); R = eps;
-    Vector<Real> X(Nobj * DefaultElemCount * DefaultChebOrder * COORD_DIM);
-    Vector<Real> OrientVec(Nobj * DefaultElemCount * DefaultChebOrder * COORD_DIM);
-    const Vector<Real>& CenterlineNds = SlenderElemList<Real>::CenterlineNodes(DefaultChebOrder);
+    Vector<Real> R(Nobj * DefaultElemCount * DefaultElemOrder); R = eps;
+    Vector<Real> X(Nobj * DefaultElemCount * DefaultElemOrder * COORD_DIM);
+    Vector<Real> OrientVec(Nobj * DefaultElemCount * DefaultElemOrder * COORD_DIM);
+    const Vector<Real>& CenterlineNds = SlenderElemList<Real>::CenterlineNodes(DefaultElemOrder);
     for (Long i = 0; i < Nobj; i++) { // Set R, X, OrientVec
       for (Long j = 0; j < DefaultElemCount; j++) {
-        for (Long k = 0; k < DefaultChebOrder; k++) {
-          const Long node_idx = (i * DefaultElemCount + j) * DefaultChebOrder + k;
+        for (Long k = 0; k < DefaultElemOrder; k++) {
+          const Long node_idx = (i * DefaultElemCount + j) * DefaultElemOrder + k;
           const Real theta =  2 * const_pi<Real>() * (j + CenterlineNds[k]) / DefaultElemCount;
 
           const Real x_dsp = i * (2*(1+eps) + delta);
@@ -65,7 +65,7 @@ template <class Real> void test(const Long test_case, const Real eps, const Real
       }
     }
 
-    geom.Init(obj_elem_cnt, Mr_lst, ChebOrder, FourierOrder, panel_len, X, R, OrientVec);
+    geom.Init(obj_elem_cnt, Mr_lst, ElemOrder, FourierOrder, panel_len, X, R, OrientVec);
   }
 
   Vector<Real> F;
@@ -94,14 +94,14 @@ template <class Real> void test(const Long test_case, const Real eps, const Real
       const auto& obj_elem_cnt = geom.obj_elem_cnt;
       const auto& obj_elem_dsp = geom.obj_elem_dsp;
       const auto& FourierOrder = geom.FourierOrder;
-      const auto& ChebOrder = geom.ChebOrder;
+      const auto& ElemOrder = geom.ElemOrder;
 
       U0 = 0;
       Long node_dsp = 0;
       for (Long i = 0; i < Nobj; i++) {
         for (Long j = 0; j < obj_elem_cnt[i]; j++) {
           Long elem_idx = obj_elem_dsp[i] + j;
-          Long Nnds = ChebOrder[elem_idx] * FourierOrder[elem_idx];
+          Long Nnds = ElemOrder[elem_idx] * FourierOrder[elem_idx];
           for (Long k = 0; k < Nnds; k++) {
             if (test_case == TestCase::AxisAligned) {
               U0[(node_dsp + k)*COORD_DIM + 0] = 0.8*i;
