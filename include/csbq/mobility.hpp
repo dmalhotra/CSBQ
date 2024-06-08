@@ -14,7 +14,8 @@ namespace sctl {
    *
    * Each object is partitioned into elements along its centerline.
    * Each element is described by the positions of a set of discretization
-   * nodes along its centerline and its cross-sectional radius at each node.
+   * nodes along its centerline and the cross-sectional radius of the fiber at
+   * each node.
    *
    * Note: For all member functions, the input/output arrays store data in AoS (Array of Structures) order.
    * For example, the array of coordinates is stored as {x1,y1,z1, x2,y2,z2, ..., xn,yn,zn}.

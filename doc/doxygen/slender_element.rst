@@ -51,12 +51,12 @@ Classes and Types
 ..    - ``NearInterac``: Computes the near-interaction operator for a given element and each target.
 ..
 
+    **Usage guide**: :ref:`Demo 1: Using SlenderElemList class <demo1>`
+
 .. note::
 
    Member functions of the base class `ElementListBase <https://sctl.readthedocs.io/en/latest/doxygen/boundary_integral.html>`_ are not shown here.
    Refer to `ElementListBase <https://sctl.readthedocs.io/en/latest/doxygen/boundary_integral.html>`_ (in `SCTL <https://sctl.readthedocs.io>`_) for base class member functions.
-
-    **Usage guide**: :ref:`Using SlenderElemList class <tutorial-slenderelemlist>`
 
 |
 

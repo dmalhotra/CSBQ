@@ -18,7 +18,7 @@ Convergent slender-body quadrature (CSBQ)
 Principal author **Dhairya Malhotra**, with additional code by **Alex Barnett**.
 This work was done at the Center for Computational Mathematics at the Flatiron Institute, NY, NY.
 
-This is a high-performance parallel C++ implementation of a high-order
+`CSBQ <https://github.com/dmalhotra/CSBQ>`_ is a high-performance parallel C++ implementation of a high-order
 adaptive Nyström quadrature for the boundary integral equations arising
 in 3D Laplace and Stokes Dirichlet and rigid mobility boundary-value problems
 for closed loop filaments of arbitrarily small circular cross-section.

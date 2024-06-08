@@ -21,8 +21,6 @@ using namespace sctl;
 
 int main(int argc, char** argv) {
   Comm::MPI_Init(&argc, &argv);
-  const Long COORD_DIM = 3; // 3D
-  using Real = double;
 
   {
     const Comm comm = Comm::World();
@@ -35,37 +33,32 @@ int main(int argc, char** argv) {
     const Long ElemOrder = 10;
     const Long FourierOrder = 12;
 
-    // discretization nodes within a element in [0,1] interval
-    const Vector<Real>& elem_nodes = SlenderElemList<Real>::CenterlineNodes(ElemOrder);
-
     const Long Nelem = 8; // number of elements
-    Vector<Real> eps(Nelem*ElemOrder); // cross-sectional radius
-    Vector<Real> Xc(Nelem*ElemOrder*COORD_DIM); // centerline coordinates
+    Vector<double> Xc, eps; // centerline coordinates, and cross-sectional radius
     Vector<Long> ElemOrderVec(Nelem), FourierOrderVec(Nelem); // order in 's' and 'theta' for each element
-    for (Long i = 0; i < Nelem; i++) { // loop of elements (build the centerline for a circle)
+    for (Long i = 0; i < Nelem; i++) { // loop over panels (build the centerline for a circle)
       ElemOrderVec[i] = ElemOrder;
       FourierOrderVec[i] = FourierOrder;
-      for (Long j = 0; j < ElemOrder; j++) { // loop over panel nodes
-        const Real phi = 2*const_pi<Real>() * (i + elem_nodes[j]) / Nelem; // circle parameterization phi in [0,2pi]
-        const Real x = cos(phi);
-        const Real y = sin(phi);
-        const Real z = 0;
 
-        const Long node_idx = i * ElemOrder + j;
-        Xc[node_idx*COORD_DIM+0] = x;
-        Xc[node_idx*COORD_DIM+1] = y;
-        Xc[node_idx*COORD_DIM+2] = z;
-        eps[node_idx] = 0.1;
+      // discretization nodes within a element in [0,1] interval
+      const Vector<double>& nodes = SlenderElemList<double>::CenterlineNodes(ElemOrderVec[i]);
+
+      for (Long j = 0; j < ElemOrderVec[i]; j++) { // loop over panel nodes
+        const double phi = 2 * M_PI * (i + nodes[j]) / Nelem; // circle parameterization phi in [0,2pi]
+        Xc.PushBack(cos(phi)); // x-coordinate
+        Xc.PushBack(sin(phi)); // y-coordinate
+        Xc.PushBack(0       ); // z-coordinate
+        eps.PushBack((cos(2 * phi) + 2) * 0.1); // cross-sectional radius
       }
     }
 
     // Initialize the element list
-    SlenderElemList<Real> elem_lst(ElemOrderVec, FourierOrderVec, Xc, eps);
+    SlenderElemList<double> elem_lst(ElemOrderVec, FourierOrderVec, Xc, eps);
 
     elem_lst.Write("vis/ring.geom", comm); // write geometry data to file
-    elem_lst.Read<Real>("vis/ring.geom", comm); // read geometry data from file
+    elem_lst.Read<double>("vis/ring.geom", comm); // read geometry data from file
 
-    Vector<Real> X, Xn; // the surface discretization nodes and normals
+    Vector<double> X, Xn; // the surface discretization nodes and normals
     Vector<Long> element_wise_node_cnt; // number of nodes per element
     elem_lst.GetNodeCoord(&X, &Xn, &element_wise_node_cnt); // get the surface geometry
 

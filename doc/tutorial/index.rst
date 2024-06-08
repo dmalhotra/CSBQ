@@ -6,6 +6,7 @@ Tutorials
 .. toctree::
    :maxdepth: 1
 
-   SlenderElemList <slenderelemlist>
-   BoundaryIntegralOp <boundaryintegralop>
+   demo1
+   demo2
+   demo3
 
