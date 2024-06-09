@@ -35,7 +35,7 @@ In the exterior of :math:`\Omega`, we represent the fluid velocity using the com
 
    \mathbf{u} = \mathcal{D}[\mathbf{\sigma}] + \alpha \, \mathcal{S}[\mathbf{\sigma}] \quad \mbox{ in } \mathbb{R}^3 \setminus \bar{\Omega},
 
-where :math:`\alpha` is a scaling factor,  :math:`\mathcal{S}` and :math:`\mathcal{D}` are the Stokes single-layer and double-layer operators,
+where :math:`\alpha` is a scaling factor,  :math:`\mathcal{S}` and :math:`\mathcal{D}` are the Stokes single-layer and double-layer potential operators,
 
 .. math::
 
@@ -48,8 +48,9 @@ Applying the boundary condition on :math:`\Gamma`, we get a second-kind boundary
 
 .. math::
 
-   (\mathcal{I}/2 + \mathcal{D} + \alpha \, \mathcal{S})[\mathbf{\sigma}] = \mathbf{u}_0 \quad \mbox{ on } \Gamma.
+   (\mathcal{I}/2 + D + \alpha \, S) \mathbf{\sigma} = \mathbf{u}_0 \quad \mbox{ on } \Gamma,
 
+where :math:`S` and :math:`D` are the Stokes single-layer and double-layer boundary integral operators.
 After discretizing and solving for the unknown :math:`\sigma`, we can evaluate the velocity field :math:`\mathbf{u}` anywhere in 
 :math:`\mathbb{R}^3 \setminus \bar{\Omega}` using the combined field representation formula above.
 
@@ -117,7 +118,7 @@ Step 4: Discretize and Solve the Integral Equation
        }
      };
 
-  For more details see `defining custom kernels <https://sctl.readthedocs.io/en/latest/tutorial/kernels.html>`_.
+  For more details see `defining custom kernels <https://sctl.readthedocs.io/en/latest/tutorial/kernels.html>`_ in SCTL.
 
 - **Initializing the Layer Potential Operator**:
 
