@@ -14,11 +14,11 @@ Given a bounded domain :math:`\Omega \in \mathbb{R}^3` with boundary :math:`\Gam
 
 .. math::
 
-   \Delta \mathbf{u} - \nabla p &= 0 \quad \mbox{ in } \mathbb{R}^3 \setminus \bar{\Omega}, \\
-        \nabla \cdot \mathbf{u} &= 0 \quad \mbox{ in } \mathbb{R}^3 \setminus \bar{\Omega}, \\
+   \Delta \mathbf{u} - \nabla p &= 0 \quad \mbox{ in } \mathbb{R}^3 \setminus \overline{\Omega}, \\
+        \nabla \cdot \mathbf{u} &= 0 \quad \mbox{ in } \mathbb{R}^3 \setminus \overline{\Omega}, \\
    \mathbf{u}|_{\Gamma} &= \mathbf{u}_0 \quad \mbox{ on } \Gamma.
 
-where :math:`\mathbf{u}` and :math:`p` are the unknown fluid velocity and pressure in :math:`\mathbb{R}^ \setminus \bar{\Omega}`, and :math:`\mathbf{u}_0` is the given fluid velocity on :math:`\Gamma`.
+where :math:`\mathbf{u}` and :math:`p` are the unknown fluid velocity and pressure in :math:`\mathbb{R}^ \setminus \overline{\Omega}`, and :math:`\mathbf{u}_0` is the given fluid velocity on :math:`\Gamma`.
 In addition, we also assume that the fluid velocity at infinity decays to zero,
 
 .. math::
@@ -33,9 +33,9 @@ In the exterior of :math:`\Omega`, we represent the fluid velocity using the com
 
 .. math::
 
-   \mathbf{u} = \mathcal{D}[\mathbf{\sigma}] + \alpha \, \mathcal{S}[\mathbf{\sigma}] \quad \mbox{ in } \mathbb{R}^3 \setminus \bar{\Omega},
+   \mathbf{u} = \mathcal{D}[\mathbf{\sigma}] + \eta \, \mathcal{S}[\mathbf{\sigma}] \quad \mbox{ in } \mathbb{R}^3 \setminus \overline{\Omega},
 
-where :math:`\alpha` is a scaling factor,  :math:`\mathcal{S}` and :math:`\mathcal{D}` are the Stokes single-layer and double-layer potential operators,
+where :math:`\eta` is a scaling factor,  :math:`\mathcal{S}` and :math:`\mathcal{D}` are the Stokes single-layer and double-layer potential operators,
 
 .. math::
 
@@ -48,11 +48,11 @@ Applying the boundary condition on :math:`\Gamma`, we get a second-kind boundary
 
 .. math::
 
-   (\mathcal{I}/2 + D + \alpha \, S) \mathbf{\sigma} = \mathbf{u}_0 \quad \mbox{ on } \Gamma,
+   (I/2 + D + \eta \, S) \mathbf{\sigma} = \mathbf{u}_0 \quad \mbox{ on } \Gamma,
 
 where :math:`S` and :math:`D` are the Stokes single-layer and double-layer boundary integral operators.
 After discretizing and solving for the unknown :math:`\sigma`, we can evaluate the velocity field :math:`\mathbf{u}` anywhere in 
-:math:`\mathbb{R}^3 \setminus \bar{\Omega}` using the combined field representation formula above.
+:math:`\mathbb{R}^3 \setminus \overline{\Omega}` using the combined field representation formula above.
 
 
 Step 3: Discretize the Geometry
@@ -80,7 +80,7 @@ Step 4: Discretize and Solve the Integral Equation
 
   .. code-block:: cpp
 
-     template <Long SL_scal> struct Stokes3D_FDxU_Scal_ {
+     template <Long SL_scal> struct Stokes3D_CF_ {
        static const std::string& Name() {
          // Name determines what quadrature tables to use.
          // Single-layer quadrature tables also works for combined fields.
@@ -117,20 +117,21 @@ Step 4: Discretize and Solve the Integral Equation
          }
        }
      };
+     using Stokes3D_CF = GenericKernel<Stokes3D_CF_<4>>;
 
   For more details see `defining custom kernels <https://sctl.readthedocs.io/en/latest/tutorial/kernels.html>`_ in SCTL.
 
 - **Initializing the Layer Potential Operator**:
 
-  Next, we create a boundary integral operator (BIO) using our custom kernel.
+  Next, we create a layer-potential operator using our custom kernel.
   We set the accuracy, and add the element list to the operator.
   
   .. code-block:: cpp
   
-     Stokes3D_FDxU_Scal<4> ker;
-     BoundaryIntegralOp<double, Stokes3D_FDxU_Scal<4>> biop(ker);
-     biop.SetAccuracy(tol);
-     biop.AddElemList(elem_lst);
+     Stokes3D_CF ker;
+     BoundaryIntegralOp<double, Stokes3D_CF> LayerPotenOp(ker);
+     LayerPotenOp.SetAccuracy(tol);
+     LayerPotenOp.AddElemList(elem_lst);
 
 - **Defining the Boundary Integral Operator**:
 
@@ -138,8 +139,8 @@ Step 4: Discretize and Solve the Integral Equation
   
   .. code-block:: cpp
   
-     const auto biop_lambda = [&biop](Vector<double>* U, const Vector<double>& sigma) {
-       biop.ComputePotential(*U, sigma);
+     const auto BIO = [&LayerPotenOp](Vector<double>* U, const Vector<double>& sigma) {
+       LayerPotenOp.ComputePotential(*U, sigma);
        (*U) += sigma * 0.5;
      };
 
@@ -150,10 +151,10 @@ Step 4: Discretize and Solve the Integral Equation
   
   .. code-block:: cpp
   
-     Vector<double> sigma, U0(biop.Dim(0));
+     Vector<double> sigma, U0(LayerPotenOp.Dim(0));
      U0 = 1; // Set boundary condition to (Ux, Uy, Uz) = (1, 1, 1)
      GMRES<double> solver(comm);
-     solver(&sigma, biop_lambda, U0, tol);
+     solver(&sigma, BIO, U0, tol);
 
 Step 5: Post-processing
 -----------------------
@@ -162,13 +163,13 @@ After solving the BIE, evaluate the velocity field in the volume and visualize i
 
 .. code-block:: cpp
 
-   CubeVolumeVis<double> cube(100, 2.0, comm); // 100x100x100 points, side length 2
-   biop.SetTargetCoord(cube.GetCoord()); // Set target coordinates for the operator
+   CubeVolumeVis<double> cube(50, 2.0, comm); // 50x50x50 points, side length 2
+   LayerPotenOp.SetTargetCoord(cube.GetCoord()); // Set target coordinates for the operator
    Vector<double> U;
-   biop.ComputePotential(U, sigma);
+   LayerPotenOp.ComputePotential(U, sigma);
    cube.WriteVTK("vis/bie-solution", U - 1); // Write to VTK file
 
-A cubic volume with 100x100x100 points and a side length of 2 is defined using the :ref:`CubeVolVis <utils_hpp>` class.
+A cubic volume with 50x50x50 points and a side length of 2 is defined using the :ref:`CubeVolVis <utils_hpp>` class.
 We then evaluate the boundary integral operator at the discretization nodes to get the fluid velocity field,
 and write the VTK visualization of the fluid velocity field to the file ``vis/bie-solution.pvtu``.
 

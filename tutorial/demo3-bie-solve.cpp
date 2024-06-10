@@ -17,8 +17,8 @@
 #include <csbq.hpp>
 using namespace sctl;
 
-// Define a custom kernel for Stokes double-layer + scaled single-layer potential
-template <Long SL_scal> struct Stokes3D_FDxU_Scal_ {
+// Define a custom kernel for Stokes combined field (double-layer + scaled single-layer potential)
+template <Long SL_scal> struct Stokes3D_CF_ {
   // Function to return the name of the kernel
   static const std::string& Name() {
     // Name determines what quadrature tables to use.
@@ -63,42 +63,42 @@ template <Long SL_scal> struct Stokes3D_FDxU_Scal_ {
 };
 
 // Define a type alias for the custom kernel
-template <Long SL_scal> using Stokes3D_FDxU_Scal = GenericKernel<Stokes3D_FDxU_Scal_<SL_scal>>;
+using Stokes3D_CF = GenericKernel<Stokes3D_CF_<4>>;
 
 int main(int argc, char** argv) {
   Comm::MPI_Init(&argc, &argv);
 
   {
     const Comm comm = Comm::World();
-    double tol = 1e-10; // Tolerance for accuracy
+    double tol = 1e-8; // Tolerance for accuracy
 
     SlenderElemList<double> elem_lst;
     elem_lst.Read<double>("data/ring.geom", comm); // read geometry data from file
     SCTL_ASSERT_MSG(elem_lst.Size() > 0, "Could not read geometry file.");
 
-    Stokes3D_FDxU_Scal<4> ker;
-    BoundaryIntegralOp<double, Stokes3D_FDxU_Scal<4>> biop(ker); // Create the layer-potential
-    biop.SetAccuracy(tol);                                       // Set the accuracy tolerance
-    biop.AddElemList(elem_lst);                                  // Add the element list to the operator
+    Stokes3D_CF ker;
+    BoundaryIntegralOp<double,Stokes3D_CF> LayerPotenOp(ker); // Create the layer-potential
+    LayerPotenOp.SetAccuracy(tol);                            // Set the accuracy tolerance
+    LayerPotenOp.AddElemList(elem_lst);                       // Add the element list to the operator
 
     // Define the boundary-integral operator: (I/2 + D + S * scale_factor)
-    const auto biop_lambda = [&biop](Vector<double>* U, const Vector<double>& sigma) {
-      biop.ComputePotential(*U, sigma);
+    const auto BIO = [&LayerPotenOp](Vector<double>* U, const Vector<double>& sigma) {
+      LayerPotenOp.ComputePotential(*U, sigma);
       (*U) += sigma * 0.5;
     };
 
-    Vector<double> sigma, U0(biop.Dim(0));       // Vectors for sigma (density), and U0 (boundary condition)
-    U0 = 1;                                      // Set boundary condition to (Ux, Uy, Uz) = (1, 1, 1)
-    GMRES<double> solver(comm);                  // Define GMRES solver
-    solver(&sigma, biop_lambda, U0, tol);        // Solve the linear system
-    elem_lst.WriteVTK("vis/sigma", sigma, comm); // Write sigma to VTK file
+    Vector<double> sigma, U0(LayerPotenOp.Dim(0)); // Vectors for sigma (density), and U0 (boundary condition)
+    U0 = 1;                                        // Set boundary condition to (Ux, Uy, Uz) = (1, 1, 1)
+    GMRES<double> solver(comm);                    // Define GMRES solver
+    solver(&sigma, BIO, U0, tol);                  // Solve the linear system
+    elem_lst.WriteVTK("vis/sigma", sigma, comm);   // Write sigma to VTK file
 
     // Visualize the fluid velocity in the volume
-    CubeVolumeVis<double> cube(100, 2.0, comm); // Define a cubic volume with 100x100x100 points and side length 2
-    biop.SetTargetCoord(cube.GetCoord());       // Set target coordinates for the operator
-    Vector<double> U;                           // Vector for storing the velocity field
-    biop.ComputePotential(U, sigma);            // Evaluate the velocity field
-    cube.WriteVTK("vis/bie-solution", U - 1);   // Write to a VTK file
+    CubeVolumeVis<double> cube(50, 2.0, comm);   // Define a cubic volume with 50x50x50 points and side length 2
+    LayerPotenOp.SetTargetCoord(cube.GetCoord());// Set target coordinates for the operator
+    Vector<double> U;                            // Vector for storing the velocity field
+    LayerPotenOp.ComputePotential(U, sigma);     // Evaluate the velocity field
+    cube.WriteVTK("vis/bie-solution", U - 1);    // Write to a VTK file
   }
 
   Comm::MPI_Finalize();
