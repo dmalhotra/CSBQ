@@ -77,9 +77,9 @@ int main(int argc, char** argv) {
     SCTL_ASSERT_MSG(elem_lst.Size() > 0, "Could not read geometry file.");
 
     Stokes3D_CF ker;
-    BoundaryIntegralOp<double,Stokes3D_CF> LayerPotenOp(ker); // Create the layer-potential
-    LayerPotenOp.SetAccuracy(tol);                            // Set the accuracy tolerance
-    LayerPotenOp.AddElemList(elem_lst);                       // Add the element list to the operator
+    BoundaryIntegralOp<double,Stokes3D_CF> LayerPotenOp(ker, false, comm); // Create the layer-potential
+    LayerPotenOp.SetAccuracy(tol);                                         // Set the accuracy tolerance
+    LayerPotenOp.AddElemList(elem_lst);                                    // Add the element list to the operator
 
     // Define the boundary-integral operator: (I/2 + D + S * scale_factor)
     const auto BIO = [&LayerPotenOp](Vector<double>* U, const Vector<double>& sigma) {

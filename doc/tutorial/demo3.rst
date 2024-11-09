@@ -169,7 +169,7 @@ After solving the BIE, evaluate the velocity field in the volume and visualize i
    LayerPotenOp.ComputePotential(U, sigma);
    cube.WriteVTK("vis/bie-solution", U - 1); // Write to VTK file
 
-A cubic volume with 50x50x50 points and a side length of 2 is defined using the :ref:`CubeVolVis <utils_hpp>` class.
+A cubic volume with 50x50x50 points and a side length of 2 is defined using the :ref:`CubeVolumeVis <utils_hpp>` class.
 We then evaluate the boundary integral operator at the discretization nodes to get the fluid velocity field,
 and write the VTK visualization of the fluid velocity field to the file ``vis/bie-solution.pvtu``.
 
@@ -191,7 +191,7 @@ Compiling and Running the Code
 
       make bin/demo3-bie-solve && ./bin/demo3-bie-solve
 
-- **Without MPI**: In the project root directory, edit ``Makefile`` to set ``CXX=mpicxx`` and
+- **With MPI**: In the project root directory, edit ``Makefile`` to set ``CXX=mpicxx`` and
   uncomment ``CXXFLAGS += -DSCTL_HAVE_MPI``. Then, run:
 
    .. code-block:: bash

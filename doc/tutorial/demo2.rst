@@ -90,7 +90,7 @@ Compiling and Running the Code
    
       make bin/demo2-bio && ./bin/demo2-bio
 
-- **Without MPI**: In the project root directory, edit ``Makefile`` to set ``CXX=mpicxx`` and
+- **With MPI**: In the project root directory, edit ``Makefile`` to set ``CXX=mpicxx`` and
   uncomment ``CXXFLAGS += -DSCTL_HAVE_MPI``. Then, run:
 
    .. code-block:: bash
