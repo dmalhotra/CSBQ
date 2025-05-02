@@ -2511,7 +2511,14 @@ namespace sctl {
                 Vec3 n0, dy;
                 { // Set n0, dy
                   n0 = cross_prod(cross_prod(x0, dx0), dx0);
-                  Real scal = (1/sqrt<Real>(dot_prod(n0,n0)));
+                  Real n0_2 = dot_prod(n0,n0);
+                  if (n0_2 == 0) {
+                    if (fabs(dx0(0,0))<fabs(dx0(1,0)) && fabs(dx0(0,0))<fabs(dx0(2,0)))      n0 = cross_prod(cross_prod(Vec3{1,0,0}, dx0), dx0);
+                    else if (fabs(dx0(1,0))<fabs(dx0(0,0)) && fabs(dx0(1,0))<fabs(dx0(2,0))) n0 = cross_prod(cross_prod(Vec3{0,1,0}, dx0), dx0);
+                    else                                                                     n0 = cross_prod(cross_prod(Vec3{0,0,1}, dx0), dx0);
+                    n0_2 = dot_prod(n0,n0);
+                  }
+                  const Real scal = 1/sqrt<Real>(n0_2);
                   n0 = n0 * scal;
                   Vec3 dn0 = (cross_prod(cross_prod(x0, d2x0), dx0) + cross_prod(cross_prod(x0, dx0), d2x0)) * scal;
                   dn0 = dn0 - n0 * dot_prod(dn0,n0);
@@ -2524,7 +2531,9 @@ namespace sctl {
                 dyds = sqrt<Real>(dot_prod(dy, dy));
 
                 const Vec3 nn = cross_prod(cross_prod(x0-yy, dx0), dx0);
-                const Vec3 y_yy = (x0-yy) +  nn * ((1/sqrt<Real>(dot_prod(nn,nn))) * r0);
+                const Real nn_2 = dot_prod(nn,nn);
+                if (nn_2 == 0) return sqrt<Real>(dot_prod(x0-yy,x0-yy) + r0*r0);
+                const Vec3 y_yy = (x0-yy) +  nn * ((1/sqrt<Real>(nn_2)) * r0);
                 return sqrt<Real>(dot_prod(y_yy, y_yy));
               };
 
