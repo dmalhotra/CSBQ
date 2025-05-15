@@ -1036,7 +1036,11 @@ namespace sctl {
     Long adap_depth = 0;
     for (RealType s = r_R0; s<2*const_pi<RealType>(); s*=2) adap_depth++;
     if (adap_depth >= max_adap_depth) {
-      SCTL_WARN("Toroidal quadrature evaluation is outside of the range of precomputed quadratures; accuracy may be severely degraded.");
+      static const int warn_once = []() {
+        SCTL_WARN("Toroidal quadrature evaluation is outside of the range of precomputed quadratures; accuracy may be severely degraded.");
+        return 0;
+      }();
+      SCTL_UNUSED(warn_once);
       adap_depth = max_adap_depth-1;
     }
 
@@ -1126,7 +1130,7 @@ namespace sctl {
         { // Set dist, e1, e2, e3
           e3 = dx*(-1/sqrt<RealType>(dot_prod(dx,dx)));
           e1 = Xt_X0 - e3 * dot_prod(Xt_X0,e3);
-          if (dot_prod(e1,e1) == 0) e1 = e1_;
+          if (dot_prod(e1,e1) < machine_eps<RealType>()) e1 = e1_;
           e1 = e1 * (1/sqrt<RealType>(dot_prod(e1,e1)));
           e2 = cross_prod(e3, e1);
           e2 = e2 * (1/sqrt<RealType>(dot_prod(e2,e2)));
@@ -1624,7 +1628,11 @@ namespace sctl {
 
       Long quad_idx = (Long)((max_adap_depth-7) - log2((double)(elem_length/elem_radius*sqrt<Real>(0.5))));
       if (quad_idx < 0 || quad_idx > max_adap_depth-1) {
-        SCTL_WARN("Slender element aspect-ratio is outside of the range of precomputed quadratures; accuracy may be severely degraded.");
+        static const int warn_once = []() {
+          SCTL_WARN("Slender element aspect-ratio is outside of the range of precomputed quadratures; accuracy may be severely degraded.");
+          return 0;
+        }();
+        SCTL_UNUSED(warn_once);
       }
       quad_idx = std::max<Integer>(0, std::min<Integer>(max_adap_depth-1, quad_idx));
 
@@ -2580,7 +2588,11 @@ namespace sctl {
                 }
               }
               if (s_vec[Npanel] < 1) {
-                SCTL_WARN("Adaptive refinement failed");
+                static const int warn_once = []() {
+                  SCTL_WARN("Adaptive refinement failed");
+                  return 0;
+                }();
+                SCTL_UNUSED(warn_once);
               }
             }
 
