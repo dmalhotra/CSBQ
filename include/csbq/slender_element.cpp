@@ -7,6 +7,7 @@
 #include <stdio.h>                     // for fread, fwrite, fclose, fopen
 #include <stdlib.h>                    // for exit
 #include <algorithm>                   // for max, min, lower_bound, sort
+#include <complex>                     // for complex
 #include <cstdint>                     // for uint64_t
 #include <fstream>                     // for basic_ostream, operator<<, bas...
 #include <functional>                  // for function
@@ -129,11 +130,11 @@ namespace sctl {
         { // Set interp_Ntt
           interp_Ntt[0] = 0.5;
           interp_Ntt[1] = 0.0;
-          Complex<Real> exp_t(cos_phi, sin_phi);
-          Complex<Real> exp_jt(cos_phi, sin_phi);
+          std::complex<Real> exp_t(cos_phi, sin_phi);
+          std::complex<Real> exp_jt(cos_phi, sin_phi);
           for (Long j = 1; j < Ntt/2; j++) {
-            interp_Ntt[j*2+0] = exp_jt.real;
-            interp_Ntt[j*2+1] =-exp_jt.imag;
+            interp_Ntt[j*2+0] = exp_jt.real();
+            interp_Ntt[j*2+1] =-exp_jt.imag();
             exp_jt *= exp_t;
           }
         }
@@ -149,14 +150,14 @@ namespace sctl {
           }
         }
         { // Rotate by theta
-          Complex<Real> exp_iktheta(1,0), exp_itheta(cos_theta, -sin_theta);
+          std::complex<Real> exp_iktheta(1,0), exp_itheta(cos_theta, -sin_theta);
           for (Long k = 0; k < Nmm/2; k++) {
             for (Long i = 0; i < KDIM0; i++) {
               for (Long j = 0; j < KDIM1; j++) {
-                Complex<Real> c(M[i*Nmm+2*k+0][j],M[i*Nmm+2*k+1][j]);
+                std::complex<Real> c(M[i*Nmm+2*k+0][j],M[i*Nmm+2*k+1][j]);
                 c *= exp_iktheta;
-                M[i*Nmm+2*k+0][j] = c.real;
-                M[i*Nmm+2*k+1][j] = c.imag;
+                M[i*Nmm+2*k+0][j] = c.real();
+                M[i*Nmm+2*k+1][j] = c.imag();
               }
             }
             exp_iktheta *= exp_itheta;
@@ -387,13 +388,13 @@ namespace sctl {
       if (F.Dim() != Ntheta*dof) F.ReInit(Ntheta*dof);
       for (Integer k = 0; k < dof; k++) {
         for (Long j = 0; j < Ntheta; j++) {
-          Complex<ValueType> F_(0,0);
+          std::complex<ValueType> F_(0,0);
           for (Long i = 0; i < N; i++) {
-            Complex<ValueType> c(F_fourier_coeff[(k*N+i)*2+0],F_fourier_coeff[(k*N+i)*2+1]);
-            Complex<ValueType> exp_t(cos<ValueType>(theta[j]*i), sin<ValueType>(theta[j]*i));
+            std::complex<ValueType> c(F_fourier_coeff[(k*N+i)*2+0],F_fourier_coeff[(k*N+i)*2+1]);
+            std::complex<ValueType> exp_t(cos<ValueType>(theta[j]*i), sin<ValueType>(theta[j]*i));
             F_ += exp_t * c * (i==0?1:2);
           }
-          F[j*dof+k] = F_.real/sqrt<ValueType>(Nt_);
+          F[j*dof+k] = F_.real()/sqrt<ValueType>(Nt_);
         }
       }
     };
@@ -501,13 +502,11 @@ namespace sctl {
     ker.KernelMatrix(Mker, Vector<Real>(COORD_DIM,(Iterator<Real>)Xt,false), Xs, Xn);
 
     StaticArray<Real,4*Nnds> mem_buff3;
-    Vector<Complex<Real>> exp_itheta(Nnds, (Iterator<Complex<Real>>)(mem_buff3+0*Nnds), false);
-    Vector<Complex<Real>> exp_iktheta_da(Nnds, (Iterator<Complex<Real>>)(mem_buff3+2*Nnds), false);
+    Vector<std::complex<Real>> exp_itheta(Nnds, (Iterator<std::complex<Real>>)(mem_buff3+0*Nnds), false);
+    Vector<std::complex<Real>> exp_iktheta_da(Nnds, (Iterator<std::complex<Real>>)(mem_buff3+2*Nnds), false);
     for (Integer j = 0; j < Nnds; j++) {
-      exp_itheta[j].real = cos_nds[j];
-      exp_itheta[j].imag =-sin_nds[j];
-      exp_iktheta_da[j].real = 2*const_pi<Real>()/Nnds*scal;
-      exp_iktheta_da[j].imag = 0;
+      exp_itheta[j] = std::complex<Real>(cos_nds[j], -sin_nds[j]);
+      exp_iktheta_da[j] = std::complex<Real>(2*const_pi<Real>()/Nnds*scal, 0);
     }
     for (Integer k = 0; k < Nmm/2; k++) { // apply Mker to complex exponentials
       // TODO: FFT might be faster since points are uniform
@@ -520,8 +519,8 @@ namespace sctl {
       }
       for (Integer j = 0; j < Nnds; j++) {
         Tensor<Real,false,KDIM0,KDIM1> Mker_(Mker[j*KDIM0]);
-        Mk0 = Mk0 + Mker_ * exp_iktheta_da[j].real;
-        Mk1 = Mk1 + Mker_ * exp_iktheta_da[j].imag;
+        Mk0 = Mk0 + Mker_ * exp_iktheta_da[j].real();
+        Mk1 = Mk1 + Mker_ * exp_iktheta_da[j].imag();
       }
       for (Integer i0 = 0; i0 < KDIM0; i0++) {
         for (Integer i1 = 0; i1 < KDIM1; i1++) {
@@ -899,15 +898,13 @@ namespace sctl {
             DyadicPanelQuadRule(nds, wts, DyadicRefDepth, LegOrder, 1);
 
             const Long Nnds = nds.Dim();
-            Vector<Complex<ValueType>> exp_itheta(Nnds), exp_iktheta(Nnds);
+            Vector<std::complex<ValueType>> exp_itheta(Nnds), exp_iktheta(Nnds);
             Vector<ValueType> Xsrc(Nnds*COORD_DIM), Xn(Nnds*COORD_DIM);
             for (Long i = 0; i < Nnds; i++) {
               const ValueType cos_t = cos<ValueType>(2*const_pi<ValueType>()*nds[i]);
               const ValueType sin_t = sin<ValueType>(2*const_pi<ValueType>()*nds[i]);
-              exp_iktheta[i].real = 1;
-              exp_iktheta[i].imag = 0;
-              exp_itheta[i].real = cos_t;
-              exp_itheta[i].imag = sin_t;
+              exp_iktheta[i] = std::complex<ValueType>(1, 0);
+              exp_itheta[i] = std::complex<ValueType>(cos_t, sin_t);
               Xsrc[i*COORD_DIM+0] = -2*sin<ValueType>(const_pi<ValueType>()*nds[i])*sin<ValueType>(const_pi<ValueType>()*nds[i]); // == cos_t - 1
               Xsrc[i*COORD_DIM+1] = sin_t;
               Xsrc[i*COORD_DIM+2] = 0;
@@ -928,8 +925,8 @@ namespace sctl {
                 for (Long j = 0; j < Ntrg; j++) {
                   for (Long k0 = 0; k0 < Kernel::SrcDim(); k0++) {
                     for (Long k1 = 0; k1 < Kernel::TrgDim(); k1++) {
-                      Mintegrands[i][(((k*2+0)*Kernel::SrcDim()+k0) *Ntrg+j)*Kernel::TrgDim()+k1] = Mker[i*Kernel::SrcDim()+k0][j*Kernel::TrgDim()+k1] * exp_iktheta[i].real;
-                      Mintegrands[i][(((k*2+1)*Kernel::SrcDim()+k0) *Ntrg+j)*Kernel::TrgDim()+k1] = Mker[i*Kernel::SrcDim()+k0][j*Kernel::TrgDim()+k1] * exp_iktheta[i].imag;
+                      Mintegrands[i][(((k*2+0)*Kernel::SrcDim()+k0) *Ntrg+j)*Kernel::TrgDim()+k1] = Mker[i*Kernel::SrcDim()+k0][j*Kernel::TrgDim()+k1] * exp_iktheta[i].real();
+                      Mintegrands[i][(((k*2+1)*Kernel::SrcDim()+k0) *Ntrg+j)*Kernel::TrgDim()+k1] = Mker[i*Kernel::SrcDim()+k0][j*Kernel::TrgDim()+k1] * exp_iktheta[i].imag();
                     }
                   }
                 }
@@ -1011,15 +1008,15 @@ namespace sctl {
       quad_rule_lst[i*4+2].ReInit(Nnds); quad_rule_lst[i*4+2].SetZero();
       quad_rule_lst[i*4+3].ReInit(Nmodes*2*Nnds); quad_rule_lst[i*4+3].SetZero();
       for (Long j = 0; j < Nnds_; j++) {
-        Complex<ValueType> exp_itheta(data[i][j*3+0], data[i][j*3+1]);
-        quad_rule_lst[i*4+0][j] = (RealType)(exp_itheta.real-1);
-        quad_rule_lst[i*4+1][j] = (RealType)(exp_itheta.imag);
+        std::complex<ValueType> exp_itheta(data[i][j*3+0], data[i][j*3+1]);
+        quad_rule_lst[i*4+0][j] = (RealType)(exp_itheta.real()-1);
+        quad_rule_lst[i*4+1][j] = (RealType)(exp_itheta.imag());
         quad_rule_lst[i*4+2][j] = (RealType)data[i][j*3+2];
 
-        Complex<ValueType> exp_iktheta(1,0);
+        std::complex<ValueType> exp_iktheta(1,0);
         for (Long k = 0; k < Nmodes; k++) {
-          quad_rule_lst[i*4+3][(k*2+0)*Nnds+j] = (RealType)exp_iktheta.real;
-          quad_rule_lst[i*4+3][(k*2+1)*Nnds+j] = (RealType)exp_iktheta.imag;
+          quad_rule_lst[i*4+3][(k*2+0)*Nnds+j] = (RealType)exp_iktheta.real();
+          quad_rule_lst[i*4+3][(k*2+1)*Nnds+j] = (RealType)exp_iktheta.imag();
           exp_iktheta *= exp_itheta;
         }
       }
@@ -1139,7 +1136,7 @@ namespace sctl {
           RealType dist1 = dot_prod(Xt_X0, e3);
           dist = sqrt<RealType>(dist0*dist0 + dist1*dist1);
         }
-        const auto exp_theta = Complex<RealType>(dot_prod(e1,e1_), -dot_prod(e2,e1_));
+        const auto exp_theta = std::complex<RealType>(dot_prod(e1,e1_), -dot_prod(e2,e1_));
 
         Matrix<RealType> Mexp_iktheta;
         Vector<RealType> nds_cos_theta, nds_sin_theta, wts;
@@ -1203,13 +1200,13 @@ namespace sctl {
           }
           Matrix<RealType>::GEMM(M, Mker_da, Mexp_iktheta);
 
-          Complex<RealType> exp_iktheta(1,0);
+          std::complex<RealType> exp_iktheta(1,0);
           for (Integer j = 0; j < FourierModes; j++) {
             for (Integer k = 0; k < KDIM0*KDIM1; k++) {
-              Complex<RealType> Mjk(M[k][j*2+0],M[k][j*2+1]);
+              std::complex<RealType> Mjk(M[k][j*2+0],M[k][j*2+1]);
               Mjk *= exp_iktheta;
-              M[k][j*2+0] = Mjk.real;
-              M[k][j*2+1] = Mjk.imag;
+              M[k][j*2+0] = Mjk.real();
+              M[k][j*2+1] = Mjk.imag();
             }
             exp_iktheta *= exp_theta;
           }
@@ -3292,7 +3289,7 @@ namespace sctl {
     const Vector<Real>     e1(COORD_DIM*ElemOrder,(Iterator<Real>)this->    e1.begin()+COORD_DIM*elem_dsp[elem_idx],false);
 
     const Real dtheta = 2*const_pi<Real>()/FourierOrder;
-    const Complex<Real> exp_dtheta(cos<Real>(dtheta), sin<Real>(dtheta));
+    const std::complex<Real> exp_dtheta(cos<Real>(dtheta), sin<Real>(dtheta));
 
     Matrix<Real> M_modal;
     if (MAX_BUFF_SIZE-buff_offset >= ElemOrder*FourierOrder * ElemOrder*KDIM0*KDIM1*FourierModes*2) {
@@ -3401,7 +3398,7 @@ namespace sctl {
       }
 
 
-      Complex<Real> exp_theta_trg(1,0);
+      std::complex<Real> exp_theta_trg(1,0);
       for (Long j = 0; j < ElemOrder; j++) { // Minterp_quad_nds *= quad_wts
         for (Long k = 0; k < Nq; k++) {
           Minterp_quad_nds[j][k] *= quad_wts[k];
@@ -3411,8 +3408,8 @@ namespace sctl {
         Long buff_offset1 = buff_offset0;
 
         auto compute_Xn_trg = [&exp_theta_trg,&dx_trg,&d2x_trg,&e1_trg,&e2_trg,&r_trg,&dr_trg,&norm_dx_trg,&inv_norm_dx_trg]() { // Set n_trg
-          Real cost = exp_theta_trg.real;
-          Real sint = exp_theta_trg.imag;
+          Real cost = exp_theta_trg.real();
+          Real sint = exp_theta_trg.imag();
 
           Real d2x_dot_e1 = dot_prod(d2x_trg, e1_trg);
           Real d2x_dot_e2 = dot_prod(d2x_trg, e2_trg);
@@ -3425,8 +3422,8 @@ namespace sctl {
           Real scale = 1/sqrt<Real>(dot_prod(n_trg,n_trg));
           return n_trg*scale;
         };
-        //const Vec3 y_trg = x_trg + e1_trg*r_trg*exp_theta_trg.real + e2_trg*r_trg*exp_theta_trg.imag;
-        const Vec3 e_trg = e1_trg*exp_theta_trg.real + e2_trg*exp_theta_trg.imag;
+        //const Vec3 y_trg = x_trg + e1_trg*r_trg*exp_theta_trg.real() + e2_trg*r_trg*exp_theta_trg.imag();
+        const Vec3 e_trg = e1_trg*exp_theta_trg.real() + e2_trg*exp_theta_trg.imag();
         const Vec3 n_trg(trg_dot_prod ? compute_Xn_trg() : Vec3((Real)0));
 
         Matrix<Real> M_tor;
