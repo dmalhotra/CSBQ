@@ -6,7 +6,7 @@ SCTL_DATA_PATH ?= ./data
 
 # Compiler settings
 CXX = g++ # Requires g++-9 or newer, icpc (with gcc compatibility 7.5 or newer), or clang++ with llvm-10 or newer
-CXXFLAGS = -std=c++11 -fopenmp # Need C++11 and OpenMP
+CXXFLAGS = -std=c++17 -fopenmp # Need C++17 and OpenMP
 
 # Define the path for quadrature tables and enable quadruple precision (for reading quadrature tables)
 CXXFLAGS += -DSCTL_DATA_PATH=$(SCTL_DATA_PATH)

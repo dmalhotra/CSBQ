@@ -5,7 +5,7 @@ Getting Started
 
 .. note::
 
-    CSBQ requires a C++11 compliant compiler with OpenMP 4.0 support. It has been tested with GCC-9 and newer on macOS and Linux platforms.
+    CSBQ requires a C++17 compliant compiler with OpenMP 4.0 support. It has been tested with GCC-9 and newer on macOS and Linux platforms.
 
 
 Downloading CSBQ
@@ -36,7 +36,7 @@ See the `SCTL usage instructions <https://sctl.readthedocs.io/>`_ for more detai
 
 The following compiler flags are **required** to compile code with the CSBQ library:
 
-- ``-std=c++11``: Enables C++11 standard.
+- ``-std=c++17``: Enables C++17 standard.
 - ``-fopenmp``: Enables OpenMP support for parallelization.
 
 Additional **required** flags for the CSBQ library:
