@@ -1677,11 +1677,16 @@ namespace sctl {
       const Vector<ValueType> coord0_ (COORD_DIM*Ncheb, (Iterator<ValueType>) coord0.begin()+elem_dsp[i]*COORD_DIM, false);
 
       const auto&      radius__ = radius0_;
-      Vector<ValueType> coord__(COORD_DIM*Ncheb);
-      Vector<ValueType>    e1__(COORD_DIM*Ncheb);
-      Vector<ValueType>    dr__(          Ncheb);
-      Vector<ValueType>    dx__(COORD_DIM*Ncheb);
-      Vector<ValueType>   d2x__(COORD_DIM*Ncheb);
+      ScratchBuf<ValueType> coord_buf(COORD_DIM*Ncheb);
+      ScratchBuf<ValueType>    e1_buf(COORD_DIM*Ncheb);
+      ScratchBuf<ValueType>    dr_buf(          Ncheb);
+      ScratchBuf<ValueType>    dx_buf(COORD_DIM*Ncheb);
+      ScratchBuf<ValueType>   d2x_buf(COORD_DIM*Ncheb);
+      Vector<ValueType> coord__(coord_buf);
+      Vector<ValueType>    e1__(   e1_buf);
+      Vector<ValueType>    dr__(   dr_buf);
+      Vector<ValueType>    dx__(   dx_buf);
+      Vector<ValueType>   d2x__(  d2x_buf);
       for (Long j = 0; j < Ncheb; j++) { // Set coord__
         for (Long k = 0; k < COORD_DIM; k++) {
           coord__[k*Ncheb+j] = coord0_[j*COORD_DIM+k];
@@ -1907,7 +1912,7 @@ namespace sctl {
       const auto& leg_wts = LegendreQuadRule<Real>(ElemOrder*FARFIELD_UPSAMPLE).second;
       GetGeom(&X_, &Xn_, &wts_, &dX_ds, &dX_dt, leg_nds, sin_theta<Real>(FourierOrder*FARFIELD_UPSAMPLE), cos_theta<Real>(FourierOrder*FARFIELD_UPSAMPLE), elem_idx);
 
-      Vector<Real> dist_far_gauss(ElemOrder*FARFIELD_UPSAMPLE);
+      ScratchBuf<Real> dist_far_gauss(ElemOrder*FARFIELD_UPSAMPLE);
       for (Long i = 0; i < ElemOrder*FARFIELD_UPSAMPLE; i++) { // Set dist_far_gauss
         const Real rho=pow<Real>((64/(15*tol)), (1/(Real)(2*ElemOrder*FARFIELD_UPSAMPLE)));
         const Real a = (rho-1/rho)/4;
@@ -2177,13 +2182,6 @@ namespace sctl {
     }
   }
   template <class Real> template <Integer digits, bool trg_dot_prod, class Kernel> void SlenderElemList<Real>::NearInteracHelper(Matrix<Real>& M, const Vector<Real>& Xtrg, const Vector<Real>& normal_trg, const Kernel& ker, const Long elem_idx) const {
-    constexpr Integer MAX_THREADS=1000;
-    constexpr Integer MAX_BUFF_SIZE=10000000;
-    SCTL_ASSERT(omp_get_num_threads() < MAX_THREADS);
-    static Vector<Vector<Real>> buff_(MAX_THREADS);
-    Vector<Real>& buff = buff_[omp_get_thread_num()];
-    if (buff.Dim() == 0) buff.ReInit(MAX_BUFF_SIZE);
-
     using Vec3 = Tensor<Real,true,COORD_DIM,1>;
     static constexpr Integer KDIM0 = Kernel::SrcDim();
     static constexpr Integer KDIM1 = Kernel::TrgDim()/(trg_dot_prod?COORD_DIM:1);
@@ -2223,20 +2221,16 @@ namespace sctl {
 
     //#pragma omp parallel for
     for (Long i = 0; i < Ntrg; i++) {
-      Long buff_offset = 0;
       const Vec3 Xt((Iterator<Real>)Xtrg.begin()+i*COORD_DIM);
       const Vec3 n_trg = (trg_dot_prod ? Vec3((Iterator<Real>)normal_trg.begin()+i*COORD_DIM) : Vec3((Real)0));
 
-      Matrix<Real> M_modal;
-      if (MAX_BUFF_SIZE-buff_offset >= ElemOrder * KDIM0*KDIM1*FourierModes*2) {
-        M_modal.ReInit(ElemOrder, KDIM0*KDIM1*FourierModes*2, buff.begin()+buff_offset, false);
-        buff_offset += ElemOrder * KDIM0*KDIM1*FourierModes*2;
-      } else {
-        M_modal.ReInit(ElemOrder, KDIM0*KDIM1*FourierModes*2);
-      }
+      ScratchBuf<Real> M_modal_buf(ElemOrder * KDIM0*KDIM1*FourierModes*2);
+      Matrix<Real> M_modal(ElemOrder, KDIM0*KDIM1*FourierModes*2, M_modal_buf.begin(), false);
       { // Set M_modal
+        constexpr Long MaxPanels = 1000;
+        ScratchBuf<Real> quad_nds_buf(MaxPanels*LegQuadOrder), quad_wts_buf(MaxPanels*LegQuadOrder);
         Vector<Real> quad_nds, quad_wts; // Quadrature rule in s
-        auto adap_quad_rule = [&ElemOrder,&radius,&dr,&coord,&dx,&d2x,&dx_max,&buff,&buff_offset,&MAX_BUFF_SIZE](Vector<Real>& quad_nds, Vector<Real>& quad_wts, const Vec3& x_trg) {
+        auto adap_quad_rule = [&ElemOrder,&radius,&dr,&coord,&dx,&d2x,&dx_max,&quad_nds_buf,&quad_wts_buf](Vector<Real>& quad_nds, Vector<Real>& quad_wts, const Vec3& x_trg) {
           const auto& leg_nds = LegendreQuadRule<Real>(LegQuadOrder).first;
           const auto& leg_wts = LegendreQuadRule<Real>(LegQuadOrder).second;
           auto adap_ref = [&leg_nds,&leg_wts](Vector<Real>& nds, Vector<Real>& wts, Real a, Real b, Integer levels) {
@@ -2467,14 +2461,8 @@ namespace sctl {
 
             Long N0 = adap_levels0 * LegQuadOrder;
             Long N1 = adap_levels1 * LegQuadOrder;
-            if (MAX_BUFF_SIZE-buff_offset >= 2*(N0+N1)) {
-              quad_nds.ReInit(N0+N1, buff.begin()+buff_offset+0*(N0+N1), false);
-              quad_wts.ReInit(N0+N1, buff.begin()+buff_offset+1*(N0+N1), false);
-              buff_offset += 2*(N0+N1);
-            } else {
-              quad_nds.ReInit(N0+N1);
-              quad_wts.ReInit(N0+N1);
-            }
+            quad_nds.ReInit(N0+N1);
+            quad_wts.ReInit(N0+N1);
             Vector<Real> nds0(N0, quad_nds.begin(), false);
             Vector<Real> wts0(N0, quad_wts.begin(), false);
             Vector<Real> nds1(N1, quad_nds.begin()+N0, false);
@@ -2484,7 +2472,7 @@ namespace sctl {
           }
           if (1) { // adaptive refinement
             Long Npanel = 0;
-            Vector<Real> s_vec;
+            ScratchBuf<Real> s_vec(MaxPanels+1);
             { // Set s_vec, Npanel (7% - 15% of near interaction time)
               const auto get_geom = [&ElemOrder,&radius,&dr,&coord,&dx,&d2x](Vec3& y, Real& dist_xt, Real& dyds, const Real s, const Vec3& x_trg, const Vec3& yy) {
                 StaticArray<Real,20> buff;
@@ -2542,13 +2530,7 @@ namespace sctl {
                 return sqrt<Real>(dot_prod(y_yy, y_yy));
               };
 
-              constexpr Long MaxPanels = 1000, max_iter = 2000;
-              if (MAX_BUFF_SIZE-buff_offset >= MaxPanels+1) { // Allocate s_vec
-                s_vec.ReInit(MaxPanels+1, buff.begin()+buff_offset, false);
-                buff_offset += MaxPanels+1;
-              } else {
-                s_vec.ReInit(MaxPanels+1);
-              }
+              constexpr Long max_iter = 2000;
 
               Vec3 y_;
               s_vec[0] = 0;
@@ -2594,14 +2576,8 @@ namespace sctl {
             }
 
             const Long N = Npanel * LegQuadOrder;
-            if (MAX_BUFF_SIZE-buff_offset >= 2*N) { // Allocate quad_nds, quad_wts
-              quad_nds.ReInit(N, buff.begin()+buff_offset+0*N, false);
-              quad_wts.ReInit(N, buff.begin()+buff_offset+1*N, false);
-              buff_offset += 2*N;
-            } else {
-              quad_nds.ReInit(N);
-              quad_wts.ReInit(N);
-            }
+            quad_nds.ReInit(N, quad_nds_buf.begin(), false);
+            quad_wts.ReInit(N, quad_wts_buf.begin(), false);
             for (Long j = 0; j < Npanel; j++) { // Set quad_nds, quad_wts
               for (Long k = 0; k < LegQuadOrder; k++) {
                 quad_nds[j*LegQuadOrder+k] = s_vec[j] + (s_vec[j+1]-s_vec[j]) * leg_nds[k];
@@ -2612,36 +2588,22 @@ namespace sctl {
         };
         adap_quad_rule(quad_nds, quad_wts, Xt);
 
-        Matrix<Real> Minterp_quad_nds;
+        const Long Nq = quad_nds.Dim();
+        ScratchBuf<Real> Minterp_buf(ElemOrder*Nq);
+        Matrix<Real> Minterp_quad_nds(ElemOrder, Nq, Minterp_buf.begin(), false);
         { // Set Minterp_quad_nds
-          if (MAX_BUFF_SIZE-buff_offset >= ElemOrder*quad_nds.Dim()) {
-            Minterp_quad_nds.ReInit(ElemOrder, quad_nds.Dim(), buff.begin()+buff_offset, false);
-            buff_offset += ElemOrder*quad_nds.Dim();
-          } else {
-            Minterp_quad_nds.ReInit(ElemOrder, quad_nds.Dim());
-          }
-          Vector<Real> Vinterp_quad_nds(ElemOrder*quad_nds.Dim(), Minterp_quad_nds.begin(), false);
+          Vector<Real> Vinterp_quad_nds(ElemOrder*Nq, Minterp_quad_nds.begin(), false);
           LagrangeInterp<Real>::Interpolate(Vinterp_quad_nds, CenterlineNodes(ElemOrder), quad_nds);
         }
 
         Vec3 x_trg = Xt;
-        Matrix<Real> r_src, dr_src, x_src, dx_src, d2x_src, e1_src;
-        if (MAX_BUFF_SIZE-buff_offset >= 14*quad_nds.Dim()) {
-          r_src  .ReInit(        1,quad_nds.Dim(), buff.begin()+buff_offset+ 0*quad_nds.Dim(), false);
-          dr_src .ReInit(        1,quad_nds.Dim(), buff.begin()+buff_offset+ 1*quad_nds.Dim(), false);
-          x_src  .ReInit(COORD_DIM,quad_nds.Dim(), buff.begin()+buff_offset+ 2*quad_nds.Dim(), false);
-          dx_src .ReInit(COORD_DIM,quad_nds.Dim(), buff.begin()+buff_offset+ 5*quad_nds.Dim(), false);
-          d2x_src.ReInit(COORD_DIM,quad_nds.Dim(), buff.begin()+buff_offset+ 8*quad_nds.Dim(), false);
-          e1_src .ReInit(COORD_DIM,quad_nds.Dim(), buff.begin()+buff_offset+11*quad_nds.Dim(), false);
-          buff_offset += 14*quad_nds.Dim();
-        } else {
-          r_src  .ReInit(        1,quad_nds.Dim());
-          dr_src .ReInit(        1,quad_nds.Dim());
-          x_src  .ReInit(COORD_DIM,quad_nds.Dim());
-          dx_src .ReInit(COORD_DIM,quad_nds.Dim());
-          d2x_src.ReInit(COORD_DIM,quad_nds.Dim());
-          e1_src .ReInit(COORD_DIM,quad_nds.Dim());
-        }
+        ScratchBuf<Real> src_buf(14*Nq);
+        Matrix<Real> r_src  (        1, Nq, src_buf.begin()+ 0*Nq, false);
+        Matrix<Real> dr_src (        1, Nq, src_buf.begin()+ 1*Nq, false);
+        Matrix<Real> x_src  (COORD_DIM, Nq, src_buf.begin()+ 2*Nq, false);
+        Matrix<Real> dx_src (COORD_DIM, Nq, src_buf.begin()+ 5*Nq, false);
+        Matrix<Real> d2x_src(COORD_DIM, Nq, src_buf.begin()+ 8*Nq, false);
+        Matrix<Real> e1_src (COORD_DIM, Nq, src_buf.begin()+11*Nq, false);
         { // Set x_src, x_trg (improve numerical stability)
           Matrix<Real> x_nodes;
           StaticArray<Real,30> buff;
@@ -2681,13 +2643,8 @@ namespace sctl {
         }
 
         const Vec3 y_trg = x_trg;
-        Matrix<Real> M_tor;
-        if (MAX_BUFF_SIZE-buff_offset >= quad_nds.Dim()*KDIM0*KDIM1*FourierModes*2) {
-          M_tor.ReInit(quad_nds.Dim(), KDIM0*KDIM1*FourierModes*2, buff.begin()+buff_offset, false);
-          buff_offset += quad_nds.Dim()*KDIM0*KDIM1*FourierModes*2;
-        } else {
-          M_tor.ReInit(quad_nds.Dim(), KDIM0*KDIM1*FourierModes*2);
-        }
+        ScratchBuf<Real> M_tor_buf(Nq*KDIM0*KDIM1*FourierModes*2);
+        Matrix<Real> M_tor(Nq, KDIM0*KDIM1*FourierModes*2, M_tor_buf.begin(), false);
         toroidal_greens_fn_batched<digits+1,ModalUpsample,trg_dot_prod>(M_tor, y_trg, Vec3((Real)1), (Real)0, n_trg, x_src, dx_src, d2x_src, r_src, dr_src, e1_src, ker, FourierModes);
 
         for (Long ii = 0; ii < M_tor.Dim(0); ii++) {
@@ -2698,13 +2655,8 @@ namespace sctl {
         Matrix<Real>::GEMM(M_modal, Minterp_quad_nds, M_tor);
       }
 
-      Matrix<Real> M_nodal;
-      if (MAX_BUFF_SIZE-buff_offset >= ElemOrder * KDIM0*KDIM1*FourierOrder) {
-        M_nodal.ReInit(ElemOrder, KDIM0*KDIM1*FourierOrder, buff.begin()+buff_offset, false);
-        buff_offset += ElemOrder * KDIM0*KDIM1*FourierOrder;
-      } else {
-        M_nodal.ReInit(ElemOrder, KDIM0*KDIM1*FourierOrder);
-      }
+      ScratchBuf<Real> M_nodal_buf(ElemOrder * KDIM0*KDIM1*FourierOrder);
+      Matrix<Real> M_nodal(ElemOrder, KDIM0*KDIM1*FourierOrder, M_nodal_buf.begin(), false);
       { // Set M_nodal
         Matrix<Real> M_nodal_(ElemOrder*KDIM0*KDIM1, FourierOrder, M_nodal.begin(), false);
         const Matrix<Real> M_modal_(ElemOrder*KDIM0*KDIM1, FourierModes*2, M_modal.begin(), false);
@@ -3262,14 +3214,6 @@ namespace sctl {
   }
 
   template <class Real> template <Integer digits, bool trg_dot_prod, class Kernel> Matrix<Real> SlenderElemList<Real>::SelfInteracHelper(const Kernel& ker, const Long elem_idx) const {
-    constexpr Integer MAX_THREADS=1000;
-    constexpr Integer MAX_BUFF_SIZE=10000000;
-    SCTL_ASSERT(omp_get_num_threads() < MAX_THREADS);
-    static Vector<Vector<Real>> buff_(MAX_THREADS);
-    Vector<Real>& buff = buff_[omp_get_thread_num()];
-    if (buff.Dim() == 0) buff.ReInit(MAX_BUFF_SIZE);
-    Long buff_offset = 0;
-
     using Vec3 = Tensor<Real,true,COORD_DIM,1>;
     static constexpr Integer KDIM0 = Kernel::SrcDim();
     static constexpr Integer KDIM1 = Kernel::TrgDim()/(trg_dot_prod?COORD_DIM:1);
@@ -3291,17 +3235,10 @@ namespace sctl {
     const Real dtheta = 2*const_pi<Real>()/FourierOrder;
     const std::complex<Real> exp_dtheta(cos<Real>(dtheta), sin<Real>(dtheta));
 
-    Matrix<Real> M_modal;
-    if (MAX_BUFF_SIZE-buff_offset >= ElemOrder*FourierOrder * ElemOrder*KDIM0*KDIM1*FourierModes*2) {
-      M_modal.ReInit(ElemOrder*FourierOrder, ElemOrder*KDIM0*KDIM1*FourierModes*2, buff.begin()+buff_offset, false);
-      buff_offset += ElemOrder*FourierOrder * ElemOrder*KDIM0*KDIM1*FourierModes*2;
-    } else {
-      M_modal.ReInit(ElemOrder*FourierOrder, ElemOrder*KDIM0*KDIM1*FourierModes*2);
-    }
+    ScratchBuf<Real> M_modal_buf(ElemOrder*FourierOrder * ElemOrder*KDIM0*KDIM1*FourierModes*2);
+    Matrix<Real> M_modal(ElemOrder*FourierOrder, ElemOrder*KDIM0*KDIM1*FourierModes*2, M_modal_buf.begin(), false);
     //#pragma omp parallel for
     for (Long i = 0; i < ElemOrder; i++) {
-      Long buff_offset0 = buff_offset;
-
       Real r_trg = radius[i];
       Real dr_trg = dr[i];
       Vec3 x_trg, dx_trg, d2x_trg, e1_trg, e2_trg;
@@ -3326,14 +3263,9 @@ namespace sctl {
       SpecialQuadRule<ModalUpsample,Real,Kernel,trg_dot_prod>(quad_nds, quad_wts, ElemOrder, i, r_trg, sqrt<Real>(dot_prod(dx_trg, dx_trg)), digits);
       const Long Nq = quad_nds.Dim();
 
-      Matrix<Real> Minterp_quad_nds;
+      ScratchBuf<Real> Minterp_buf(ElemOrder*Nq);
+      Matrix<Real> Minterp_quad_nds(ElemOrder, Nq, Minterp_buf.begin(), false);
       { // Set Minterp_quad_nds
-        if (MAX_BUFF_SIZE-buff_offset0 >= ElemOrder*Nq) {
-          Minterp_quad_nds.ReInit(ElemOrder, Nq, buff.begin()+buff_offset0, false);
-          buff_offset0 += ElemOrder*Nq;
-        } else {
-          Minterp_quad_nds.ReInit(ElemOrder, Nq);
-        }
         Vector<Real> Vinterp_quad_nds(ElemOrder*Nq, Minterp_quad_nds.begin(), false);
 
         StaticArray<Real,20> buff0;
@@ -3342,23 +3274,13 @@ namespace sctl {
         LagrangeInterp<Real>::Interpolate(Vinterp_quad_nds, cheb_nds0, quad_nds);
       }
 
-      Matrix<Real> r_src, dr_src, x_src, dx_src, d2x_src, e1_src;
-      if (MAX_BUFF_SIZE-buff_offset0 >= 14*Nq) {
-        r_src  .ReInit(        1, Nq, buff.begin()+buff_offset0+ 0*Nq, false);
-        dr_src .ReInit(        1, Nq, buff.begin()+buff_offset0+ 1*Nq, false);
-        x_src  .ReInit(COORD_DIM, Nq, buff.begin()+buff_offset0+ 2*Nq, false);
-        dx_src .ReInit(COORD_DIM, Nq, buff.begin()+buff_offset0+ 5*Nq, false);
-        d2x_src.ReInit(COORD_DIM, Nq, buff.begin()+buff_offset0+ 8*Nq, false);
-        e1_src .ReInit(COORD_DIM, Nq, buff.begin()+buff_offset0+11*Nq, false);
-        buff_offset0 += 14*Nq;
-      } else {
-        r_src  .ReInit(        1, Nq);
-        dr_src .ReInit(        1, Nq);
-        x_src  .ReInit(COORD_DIM, Nq);
-        dx_src .ReInit(COORD_DIM, Nq);
-        d2x_src.ReInit(COORD_DIM, Nq);
-        e1_src .ReInit(COORD_DIM, Nq);
-      }
+      ScratchBuf<Real> src_buf(14*Nq);
+      Matrix<Real> r_src  (        1, Nq, src_buf.begin()+ 0*Nq, false);
+      Matrix<Real> dr_src (        1, Nq, src_buf.begin()+ 1*Nq, false);
+      Matrix<Real> x_src  (COORD_DIM, Nq, src_buf.begin()+ 2*Nq, false);
+      Matrix<Real> dx_src (COORD_DIM, Nq, src_buf.begin()+ 5*Nq, false);
+      Matrix<Real> d2x_src(COORD_DIM, Nq, src_buf.begin()+ 8*Nq, false);
+      Matrix<Real> e1_src (COORD_DIM, Nq, src_buf.begin()+11*Nq, false);
       { // Set x_src, x_trg (improve numerical stability)
         Matrix<Real> x_nodes;
         StaticArray<Real,30> buff;
@@ -3405,8 +3327,6 @@ namespace sctl {
         }
       }
       for (Long j = 0; j < FourierOrder; j++) {
-        Long buff_offset1 = buff_offset0;
-
         auto compute_Xn_trg = [&exp_theta_trg,&dx_trg,&d2x_trg,&e1_trg,&e2_trg,&r_trg,&dr_trg,&norm_dx_trg,&inv_norm_dx_trg]() { // Set n_trg
           Real cost = exp_theta_trg.real();
           Real sint = exp_theta_trg.imag();
@@ -3426,13 +3346,8 @@ namespace sctl {
         const Vec3 e_trg = e1_trg*exp_theta_trg.real() + e2_trg*exp_theta_trg.imag();
         const Vec3 n_trg(trg_dot_prod ? compute_Xn_trg() : Vec3((Real)0));
 
-        Matrix<Real> M_tor;
-        if (MAX_BUFF_SIZE-buff_offset1 >= Nq * KDIM0*KDIM1*FourierModes*2) {
-          M_tor.ReInit(Nq, KDIM0*KDIM1*FourierModes*2, buff.begin()+buff_offset1, false);
-          buff_offset1 += Nq * KDIM0*KDIM1*FourierModes*2;
-        } else {
-          M_tor.ReInit(Nq, KDIM0*KDIM1*FourierModes*2);
-        }
+        ScratchBuf<Real> M_tor_buf(Nq * KDIM0*KDIM1*FourierModes*2);
+        Matrix<Real> M_tor(Nq, KDIM0*KDIM1*FourierModes*2, M_tor_buf.begin(), false);
         toroidal_greens_fn_batched<digits+1,ModalUpsample,trg_dot_prod>(M_tor, x_trg, e_trg, r_trg, n_trg, x_src, dx_src, d2x_src, r_src, dr_src, e1_src, ker, FourierModes);
 
         Matrix<Real> M_modal_(ElemOrder, KDIM0*KDIM1*FourierModes*2, M_modal[i*FourierOrder+j], false);
@@ -3441,13 +3356,8 @@ namespace sctl {
       }
     }
 
-    Matrix<Real> M_nodal;
-    if (MAX_BUFF_SIZE-buff_offset >= ElemOrder*FourierOrder * ElemOrder*KDIM0*KDIM1*FourierOrder) {
-      M_nodal.ReInit(ElemOrder*FourierOrder, ElemOrder*KDIM0*KDIM1*FourierOrder, buff.begin()+buff_offset, false);
-      buff_offset += ElemOrder*FourierOrder * ElemOrder*KDIM0*KDIM1*FourierOrder;
-    } else {
-      M_nodal.ReInit(ElemOrder*FourierOrder, ElemOrder*KDIM0*KDIM1*FourierOrder);
-    }
+    ScratchBuf<Real> M_nodal_buf(ElemOrder*FourierOrder * ElemOrder*KDIM0*KDIM1*FourierOrder);
+    Matrix<Real> M_nodal(ElemOrder*FourierOrder, ElemOrder*KDIM0*KDIM1*FourierOrder, M_nodal_buf.begin(), false);
     { // Set M_nodal
       const Matrix<Real> M_modal_(ElemOrder*FourierOrder * ElemOrder*KDIM0*KDIM1, FourierModes*2, M_modal.begin(), false);
       Matrix<Real> M_nodal_(ElemOrder*FourierOrder * ElemOrder*KDIM0*KDIM1, FourierOrder, M_nodal.begin(), false);

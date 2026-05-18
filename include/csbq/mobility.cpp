@@ -492,25 +492,29 @@ namespace sctl {
           const Long ElemOrder_ = ElemOrder[elem];
 
           const auto RefinementMatrix = [](const Integer ElemOrder_) {
-            Vector<Real> trg_nds(2*ElemOrder_);
+            ScratchBuf<Real> trg_nds_buf(2*ElemOrder_);
+            Vector<Real> trg_nds(trg_nds_buf);
             const Vector<Real>& src_nds = ChebQuadRule<Real>::nds(ElemOrder_);
             for (Long j = 0; j < ElemOrder_; j++) {
               trg_nds[j] = src_nds[j]*0.5;
               trg_nds[ElemOrder_+j] = 0.5 + src_nds[j]*0.5;
             }
 
-            Vector<Real> M_(ElemOrder_ * 2*ElemOrder_);
+            ScratchBuf<Real> M_buf(ElemOrder_ * 2*ElemOrder_);
+            Vector<Real> M_(M_buf);
             LagrangeInterp<Real>::Interpolate(M_, src_nds, trg_nds);
             return Matrix<Real>(ElemOrder_, 2*ElemOrder_, M_.begin(), false).Transpose();
           };
           const auto CoarseningMatrix = [](const Integer ElemOrder_) {
             const Vector<Real>& src_nds = ChebQuadRule<Real>::nds(ElemOrder_);
-            Vector<Real> trg_nds0(ElemOrder_/2), trg_nds1(ElemOrder_-ElemOrder_/2);
+            ScratchBuf<Real> trg_nds0_buf(ElemOrder_/2), trg_nds1_buf(ElemOrder_-ElemOrder_/2);
+            Vector<Real> trg_nds0(trg_nds0_buf), trg_nds1(trg_nds1_buf);
             for (Long j = 0; j < ElemOrder_/2; j++) trg_nds0[j] = src_nds[j]*2;
             for (Long j = ElemOrder_/2; j < ElemOrder_; j++) trg_nds1[j-ElemOrder_/2] = src_nds[j]*2-1.0;
 
             Matrix<Real> Mcoarsen(ElemOrder_, 2*ElemOrder_); Mcoarsen = 0;
-            Vector<Real> M0(ElemOrder_ * trg_nds0.Dim()), M1(ElemOrder_ * trg_nds1.Dim());
+            ScratchBuf<Real> M0_buf(ElemOrder_ * trg_nds0.Dim()), M1_buf(ElemOrder_ * trg_nds1.Dim());
+            Vector<Real> M0(M0_buf), M1(M1_buf);
             LagrangeInterp<Real>::Interpolate(M0, src_nds, trg_nds0);
             LagrangeInterp<Real>::Interpolate(M1, src_nds, trg_nds1);
 
