@@ -308,7 +308,7 @@ namespace sctl {
       }
       Vector<ValueType> Fcoeff(KDIM0*Nmm), F, U_;
       for (Long i = 0; i < KDIM0*Nmm; i++) {
-        Fcoeff = 0; Fcoeff[i] = 1;
+        Fcoeff = 0; Fcoeff[i] = 1/sqrt<ValueType>(Nm); // 1/sqrt(Nm) C2R normalization
         { // Set F
           fft_Nm_C2R.Execute(Fcoeff, F);
           Matrix<ValueType> FF(KDIM0,Nm,F.begin(), false);
@@ -331,8 +331,9 @@ namespace sctl {
     { // U1 <-- fft_Nt(U0)
       FFT<ValueType> fft_Nt;
       Vector<Long> dim_vec(1); dim_vec = Nt;
-      fft_Nt.Setup(FFT_Type::R2C, KDIM0*Nmm*Nr*KDIM1, dim_vec);
+      fft_Nt.Setup(FFT_Type::R2C, KDIM0*Nmm*Nr*KDIM1, dim_vec, omp_get_max_threads());
       fft_Nt.Execute(U0, U1);
+      U1 *= 1/sqrt<ValueType>(Nt);
       if (Nt%2==0 && Nt) {
         for (Long i = Ntt-2; i < U1.Dim(); i += Ntt) {
           U1[i] *= 0.5;
@@ -375,8 +376,9 @@ namespace sctl {
     { // Set F_fourier_coeff
       FFT<ValueType> fft_plan;
       Vector<Long> dim_vec(1); dim_vec[0] = Nt_;
-      fft_plan.Setup(FFT_Type::R2C, KDIM0, dim_vec);
+      fft_plan.Setup(FFT_Type::R2C, KDIM0, dim_vec, 1);
       fft_plan.Execute(F_, F_fourier_coeff);
+      F_fourier_coeff *= 1/sqrt<ValueType>(Nt_);
       if (Nt_%2==0 && F_fourier_coeff.Dim()) {
         F_fourier_coeff[F_fourier_coeff.Dim()-2] *= 0.5;
       }
