@@ -1,6 +1,7 @@
 #ifndef _CSBQ_SLENDER_ELEMENT_CPP_
 #define _CSBQ_SLENDER_ELEMENT_CPP_
 
+#include <atomic>                        // for atomic<bool> (race-clean double-checked locking)
 #include <fstream>                       // for ofstream, ifstream
 #include <sstream>                       // for istringstream
 #include <omp.h>                       // for omp_get_num_threads, omp_get_t...
@@ -1048,8 +1049,10 @@ namespace sctl {
     static Vector<Vector<Vector<RealType>>> all_quad_nds_cos_theta(100);
     static Vector<Vector<Vector<RealType>>> all_quad_nds_sin_theta(100);
     static Vector<Vector<Vector<RealType>>> all_quad_wts(100);
+    static std::atomic<bool> quad_ready[100];
+    if (!quad_ready[Nmodes].load(std::memory_order_acquire)) {
     #pragma omp critical(SCTL_ToroidalSpecialQuadRule)
-    if (all_quad_wts[Nmodes].Dim() == 0) {
+    if (!quad_ready[Nmodes].load(std::memory_order_relaxed)) {
       auto quad_rules = BuildToroidalSpecialQuadRules<RealType,Kernel,adap>(Nmodes, VecLen);
       const Long Nrules = quad_rules.Dim()/4;
 
@@ -1069,6 +1072,8 @@ namespace sctl {
       all_quad_nds_cos_theta[Nmodes].Swap(quad_nds_cos_theta);
       all_quad_nds_sin_theta[Nmodes].Swap(quad_nds_sin_theta);
       all_quad_wts[Nmodes].Swap(quad_wts);
+      quad_ready[Nmodes].store(true, std::memory_order_release);
+    }
     }
 
     { // Set Mfourier, nds_cos_theta, nds_sin_theta, wts
@@ -1620,9 +1625,13 @@ namespace sctl {
       static Vector<Vector<Vector<Real>>> nds_lst(MaxElemOrder);
       static Vector<Vector<Vector<Real>>> wts_lst(MaxElemOrder);
       SCTL_ASSERT(ElemOrder < MaxElemOrder);
+      static std::atomic<bool> sq_ready[MaxElemOrder];
+      if (!sq_ready[ElemOrder].load(std::memory_order_acquire)) {
       #pragma omp critical(SCTL_SpecialQuadRule)
-      if (!wts_lst[ElemOrder].Dim()) {
+      if (!sq_ready[ElemOrder].load(std::memory_order_relaxed)) {
         load_special_quad_rule(nds_lst[ElemOrder], wts_lst[ElemOrder], ElemOrder);
+        sq_ready[ElemOrder].store(true, std::memory_order_release);
+      }
       }
 
       Long quad_idx = (Long)((max_adap_depth-7) - log2((double)(elem_length/elem_radius*sqrt<Real>(0.5))));
