@@ -747,7 +747,7 @@ namespace sctl {
       using RealType = long double;
       #endif
       Vector<Vector<RealType>> data;
-      ReadFile<RealType>(data, std::string(SCTL_QUOTEME(SCTL_DATA_PATH)) + "/log_quad");
+      ReadFile<RealType>(data, std::string(CSBQ_QUOTEME(CSBQ_DATA_PATH)) + "/log_quad");
       if (data.Dim() < MaxOrder*2) {
         data.ReInit(MaxOrder*2);
         #pragma omp parallel for
@@ -768,7 +768,7 @@ namespace sctl {
           };
           InterpQuadRule<RealType>::Build(data[order*2+0], data[order*2+1], integrands, 0, 1, machine_eps<RealType>(), order, 2e-4, 1.0, false);
         }
-        WriteFile<RealType>(data, std::string(SCTL_QUOTEME(SCTL_DATA_PATH)) + "/log_quad");
+        WriteFile<RealType>(data, std::string(CSBQ_QUOTEME(CSBQ_DATA_PATH)) + "/log_quad");
       }
 
       Vector<std::pair<Vector<ValueType>,Vector<ValueType>>> nds_wts_lst(MaxOrder);
@@ -794,7 +794,7 @@ namespace sctl {
   }
 
   template <class RealType, class Kernel, Integer adap> static Vector<Vector<RealType>> BuildToroidalSpecialQuadRules(Integer Nmodes, Integer VecLen) {
-    const std::string fname = std::string(SCTL_QUOTEME(SCTL_DATA_PATH)) + std::string("/toroidal_quad_rule_m") + std::to_string(Nmodes) + "_" + Kernel::Name();
+    const std::string fname = std::string(CSBQ_QUOTEME(CSBQ_DATA_PATH)) + std::string("/toroidal_quad_rule_m") + std::to_string(Nmodes) + "_" + Kernel::Name();
     constexpr Integer COORD_DIM = 3;
     constexpr Integer max_adap_depth = 30; // build quadrature rules for points up to 2*pi*0.5^max_adap_depth from source loop
     constexpr Integer crossover_adap_depth = 2;
@@ -1584,7 +1584,7 @@ namespace sctl {
 
     if (!adap_quad) {
       auto load_special_quad_rule = [](Vector<Vector<Real>>& nds_lst, Vector<Vector<Real>>& wts_lst, const Integer ElemOrder){
-        const std::string fname = std::string(SCTL_QUOTEME(SCTL_DATA_PATH)) + std::string("/special_quad_q") + std::to_string(ElemOrder) + "_" + Kernel::Name() + (trg_dot_prod ? "_dotXn" : "");
+        const std::string fname = std::string(CSBQ_QUOTEME(CSBQ_DATA_PATH)) + std::string("/special_quad_q") + std::to_string(ElemOrder) + "_" + Kernel::Name() + (trg_dot_prod ? "_dotXn" : "");
         const auto cheb_nds_ = SlenderElemList<ValueType>::CenterlineNodes(ElemOrder);
 
         Vector<Vector<ValueType>> data;

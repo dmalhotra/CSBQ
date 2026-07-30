@@ -4,6 +4,14 @@
 #include <string>
 #include <sctl.hpp>
 
+// Location of the precomputed quadrature tables. Passed unquoted
+// (-DCSBQ_DATA_PATH=./data), so stringify it before building a path.
+#ifndef CSBQ_DATA_PATH
+#define CSBQ_DATA_PATH ./data
+#endif
+#define CSBQ_QUOTEME_1(x) #x
+#define CSBQ_QUOTEME(x) CSBQ_QUOTEME_1(x)
+
 namespace sctl {
 
   class VTUData;
