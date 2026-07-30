@@ -2,14 +2,14 @@
 
 # Directories for SCTL includes and quadrature tables
 SCTL_INCLUDE_DIR ?= ./SCTL/include
-SCTL_DATA_PATH ?= ./data
+CSBQ_DATA_PATH ?= ./data
 
 # Compiler settings
 CXX = g++ # Requires g++-9 or newer, icpc (with gcc compatibility 7.5 or newer), or clang++ with llvm-10 or newer
 CXXFLAGS = -std=c++17 -fopenmp # Need C++17 and OpenMP
 
 # Define the path for quadrature tables and enable quadruple precision (for reading quadrature tables)
-CXXFLAGS += -DSCTL_DATA_PATH=$(SCTL_DATA_PATH)
+CXXFLAGS += -DCSBQ_DATA_PATH=$(CSBQ_DATA_PATH)
 CXXFLAGS += -DSCTL_QUAD_T=__float128
 
 

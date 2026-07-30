@@ -41,7 +41,7 @@ The following compiler flags are **required** to compile code with the CSBQ libr
 
 Additional **required** flags for the CSBQ library:
 
-- ``-DSCTL_DATA_PATH=$(SCTL_DATA_PATH)``: Specifies the path for quadrature tables, where ``SCTL_DATA_PATH`` defaults to ``./data``.
+- ``-DCSBQ_DATA_PATH=$(CSBQ_DATA_PATH)``: Specifies the path for quadrature tables, where ``CSBQ_DATA_PATH`` defaults to ``./data``.
 - ``-DSCTL_QUAD_T=__float128``: Enables quadruple precision for stored quadrature tables.
 
 
