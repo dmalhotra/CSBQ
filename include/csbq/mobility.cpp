@@ -1529,7 +1529,7 @@ namespace sctl {
       Long Nglb;
       { // Set Nglb
         StaticArray<Long,2>  N_{N,0};
-        comm_.Allreduce<Long>(N_+0, N_+1, 1, CommOp::SUM);
+        comm_.Allreduce(N_+0, N_+1, 1, CommOp::SUM);
         Nglb = N_[1];
       }
       if (M.Dim(0) != Nglb || M.Dim(1) != Nglb) M.ReInit(Nglb,Nglb);
