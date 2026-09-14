@@ -1682,6 +1682,7 @@ namespace sctl {
     dr    .ReInit(          Nnodes);
     dx    .ReInit(COORD_DIM*Nnodes);
     d2x   .ReInit(COORD_DIM*Nnodes);
+    #pragma omp parallel for schedule(dynamic)
     for (Long i = 0; i < Nelem; i++) { // Set coord, radius, dr, ds, d2s
       const Long Ncheb = cheb_order[i];
       const Vector<ValueType> radius0_(          Ncheb, (Iterator<ValueType>)radius0.begin()+elem_dsp[i]          , false);
