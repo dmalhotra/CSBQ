@@ -32,6 +32,10 @@ function K = nyst_Kzz_SBT(pan,sbrk,o)
 % 
 % When called with no arguments, does self-test.
 
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % Barnett 1/14/22
 if nargin==0, test_nyst_Kzz_SBT; return; end
 if nargin<3, o=[]; end

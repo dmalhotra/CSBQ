@@ -10,6 +10,10 @@ function pan = load_geom(fnam)
 %
 % Called with no arguments does self-test.
 
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % Barnett 1/12/22
 if nargin==0, test_load_geom; return; end
 

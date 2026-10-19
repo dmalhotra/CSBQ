@@ -21,6 +21,10 @@
 %
 % See also NUM2CELLSTR
 
+% Copyright (C) 2002 Alex Barnett, and 2018-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 %    Alex Barnett 12/5/02, updated 11/14/18.
 
 function h=legnum(a, prec, prefix)

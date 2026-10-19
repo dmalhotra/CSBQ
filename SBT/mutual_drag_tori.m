@@ -13,6 +13,10 @@ function F1 = mutual_drag_tori(eps,delta,xtwist,U2)
 %
 % without arguments, does basic self-test
 
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % Barnett 3/17/23
 %clear;   % kill since func
 verb = 0;    % adjust by hand to 0 for func use

@@ -13,6 +13,10 @@ function Lambda = Lambda_SBT(pan, logterm)
 %
 %  The only test so far is DRAG_TORUS_EDGEWISE_SBT
 
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % Barnett 1/18/22
 
 tx = horzcat(pan.tx);                  % s-hat's at nodes, 3*N

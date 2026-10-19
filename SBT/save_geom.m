@@ -10,6 +10,10 @@ function save_geom(fnam,pan,r,thetaord)
 %
 % Called with no arguments does self-test.
 
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % Barnett 1/12/22
 if nargin==0, test_save_geom; return; end
 if nargin<4, thetaord=0; end       % dummy value

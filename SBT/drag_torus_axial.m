@@ -26,6 +26,11 @@
 % with SBT in general for smooth cases.
 %
 % Barnett 1/5/22 (axial); added edgewise drag for fun 1/17/22.
+
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 clear
 
 R = 3.7;    % major radius of torus, ie of centerline circle, can be anything

@@ -34,6 +34,10 @@ function K = nyst_K_SBT_nonself(tpan,span,eps)
 % See also: NYST_K_SBT which is the SBT self-interaction case
 % 
 % When called with no arguments, does self-test.
+
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
   
 % Barnett 3/20/23
 if nargin==0, test_nyst_K_SBT_nonself; return; end
