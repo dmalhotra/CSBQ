@@ -83,3 +83,6 @@ If you find this code useful in your research, please cite our publication:
 
 - Dhairya Malhotra and Alex Barnett. "Efficient convergent boundary integral methods for slender bodies." *Journal of Computational Physics* 503 (2024): 112855. doi:[10.1016/j.jcp.2024.112855](http://dx.doi.org/10.1016/j.jcp.2024.112855)
 
+### License
+
+CSBQ is licensed under the [Apache License 2.0](LICENSE). The [NOTICE](NOTICE) file lists the authors and must be kept in any redistribution, including ports to other languages. It also has the authors' requests on crediting them and on AI use.

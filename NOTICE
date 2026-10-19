@@ -1,0 +1,37 @@
+CSBQ: Convergent slender-body quadrature
+
+Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors
+
+Authors:
+  Dhairya Malhotra (lead author)
+  Alex Barnett (slender-body theory MATLAB codes in SBT/, tangle geometry)
+Each source file names its own authors in its header.
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Ports and translations of this code to other programming languages, whether
+made by hand or with automated tools, are derived from this work. The authors
+of this code remain authors of every part derived from it, and Section 4 of
+the License requires distributions of such works to retain this notice and
+the notices in the file headers.
+
+Request from the authors:
+  - A port or translation of CSBQ as a whole, or of a substantial part of it,
+    lists the authors named in the headers of the files it derives from in
+    its own author list, credited for the original implementation, just as
+    a translated book keeps its author and credits its translator. Smaller
+    reuse credits them as third-party code, as CSBQ does for its third-party
+    code.
+  - Do not use this code to generate automated ports or clones without
+    substantive human oversight and understanding of its design.
+  - Do not use this code or its documentation to train AI models.
+
+Third-party code:
+  SBT/utils/arrow.m: ARROW by Erik A. Johnson, Copyright (c) 1995-2016,
+  from the MATLAB Central File Exchange, BSD-3-Clause License
+  (see SBT/utils/LICENSE-arrow.txt).
+  SBT/utils/hline.m, vline.m: by Brandon Kuczenski for Kensington Labs
+  (2001), from the MATLAB Central File Exchange, BSD-2-Clause License
+  (see SBT/utils/LICENSE-hline-vline.txt).
+  SBT/utils/gauss.m: gauss.m from L. N. Trefethen, Spectral Methods in
+  MATLAB (SIAM, 2000).
