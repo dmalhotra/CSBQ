@@ -27,7 +27,7 @@ copyright = '2021-2026, The Simons Foundation, Inc. and the CSBQ authors'
 author = 'Dhairya Malhotra, Alex Barnett'
 
 # The short X.Y version
-version = '1.0.0'
+version = '2.0.0'
 # The full version, including alpha/beta/rc tags
 release = '{}'.format(version)
 
