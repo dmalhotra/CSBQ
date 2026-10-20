@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use CSBQ, please cite the paper below."
+message: "If you use CSBQ, please cite both the software and the paper below."
 type: software
 title: "CSBQ: Convergent slender-body quadrature"
 authors:
