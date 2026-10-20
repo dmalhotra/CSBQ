@@ -17,6 +17,10 @@ function pan = map_pans(pan,Z,Zp)
 %
 % Calling without arguments does self-test of both modes (Zp and no Zp).
 
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % Barnett 1/12/22
 if nargin==0, test_map_pans; return; end
 analderiv = nargin>2 && ~isempty(Zp);

@@ -9,6 +9,10 @@ function b = pan_brkpts(W)
 %
 % Called with no arguments does self-test.
 
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % Barnett 1/12/22
 if nargin==0, test_pan_brkpts; return; end
 b = [0; cumsum(sum(W,2))];

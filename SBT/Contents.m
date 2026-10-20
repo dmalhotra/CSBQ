@@ -22,3 +22,7 @@
 %   startup                 - some project- and Alex-specific MATLAB settings for SBT.
 %   test_all                - run all tests of local functions and new utilities, no elaborate drivers
 %   test_spec_toy           - Check spectrum of scalar SBT operator (zz-part) on unit circle vs analytic.
+
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0

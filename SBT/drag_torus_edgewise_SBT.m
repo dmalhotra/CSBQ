@@ -7,6 +7,11 @@
 % by Johnson-Wu '79, p.272. Align torus in xy-plane since we tested rot by now.
 %
 % Barnett 1/17/22
+
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 clear; verb = 0;
 
 mu = 1;               % fluid viscosity (keep at 1 to get drag coeff)

@@ -4,6 +4,11 @@
 % where d(t,s) = 2 sin |s-t|/2 is the distance btw angles s,t on unit circle.
 %
 % Barnett 12/23/21
+
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 clear
 
 %ker = @(t,s) cos(mod(s-t,2*pi)/2);   % warm-up discont ker (half-cycle of cos)

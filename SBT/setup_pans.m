@@ -12,6 +12,10 @@ function pan = setup_pans(tpan,p)
 %
 % Without arguments, a self-test is done.
 
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % Barnett 12/23/21. 1/12/22 changed quad-wei to v. 3/17/23 added ip{l,r} field
 if nargin==0, test_setup_pans; return; end
 

@@ -17,6 +17,10 @@ function [pan sbrk] = arccoords_pans(pan)
 %
 % Without arguments does self-test.
 
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % Barnett 1/13/22. Chart handles & test 1/14/22, unused.
 if nargin==0, test_arccoords_pans; return; end
 

@@ -8,6 +8,10 @@ function showcurve(pan,ax)
 %
 % For a test see: LOAD_GEOM
 
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % Barnett 1/12/22
 if nargin<2, figure; else, axes(ax); hold on; end
 l = 0.1; % vector scaling

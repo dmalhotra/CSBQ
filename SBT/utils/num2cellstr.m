@@ -14,6 +14,10 @@
 %
 % See also SPRINTF, CELLSTR
 
+% Copyright (C) 2002 Alex Barnett, and 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 %    Alex Barnett 12/5/02, tweaked 12/23/21
 
 function [c] = num2cellstr(a, prec, prefix)

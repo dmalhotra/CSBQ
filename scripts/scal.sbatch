@@ -1,4 +1,8 @@
 #!/bin/bash -l
+# Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+# Author: Dhairya Malhotra
+# SPDX-License-Identifier: Apache-2.0
+
 #SBATCH --partition=ccm
 #SBATCH --constraint=skylake&opa
 #SBATCH --time=10000

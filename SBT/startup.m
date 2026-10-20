@@ -1,6 +1,10 @@
 % STARTUP  some project- and Alex-specific MATLAB settings for SBT.
 % Run this before doing anything.
 
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % compulsory
 addpath('utils')
 

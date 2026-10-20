@@ -11,6 +11,10 @@ function [f fp]  = interpfunc_1d(s,y)
 %  should only be evaluated for t in the minimum interval containing s nodes.
 %
 %  It is thus a simple non-adaptive "function generator" a la Stein-Blackwell.
+
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
   
 % Barnett 1/14/22
 if nargin==0, test_interpfunc_1d; return; end

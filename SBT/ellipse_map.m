@@ -9,6 +9,10 @@ function [Z,Zp,perim] = ellipse_map(a,b,Q,c)
 % [...] = ellipse_map(a,b,Q,c) instead uses translation column vector c and
 %  rotation 3*3 matrix Q.
 
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % Barnett 1/12/22
 if b>a, [b,a] = deal(a,b); end              % so a>=b
 if nargin<3, [Q,~] = qr(rand(3)); end       % rot, generic

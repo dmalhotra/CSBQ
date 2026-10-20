@@ -1,4 +1,9 @@
 % Run all tests of local functions and non-trivial utilities.
+
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 startup
 
 % in rough order from low- to high-level:

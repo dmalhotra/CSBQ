@@ -11,6 +11,10 @@ function [L Lp]  = interpmat_1d(t,s)
 %     [-1,1]
 %  2) Computed in Helsing style, thus stable only up to about p~40.
 
+% Copyright (C) 2013-2016 Alex Barnett, and 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % bits taken from qplp/interpmatrix.m from 2013.
 % Barnett 7/17/16. Auto-centering & scaling for stability 12/23/21.
 % deriv 1/5/22.

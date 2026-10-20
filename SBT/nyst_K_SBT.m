@@ -39,6 +39,10 @@ function K = nyst_K_SBT(pan,sbrk,o)
 % See also: NYST_KZZ_SBT which is the scalar special case.
 % 
 % When called with no arguments, does self-test.
+
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
   
 % Barnett 1/17/22
 if nargin==0, test_nyst_K_SBT; return; end

@@ -1,0 +1,78 @@
+cff-version: 1.2.0
+message: "If you use CSBQ, please cite both the software and the paper below."
+type: software
+title: "CSBQ: Convergent slender-body quadrature"
+authors:
+  - given-names: Dhairya
+    family-names: Malhotra
+  - given-names: Alex
+    family-names: Barnett
+abstract: "A high-performance parallel C++ implementation of a high-order adaptive Nyström quadrature for the boundary integral equations arising in 3D Laplace and Stokes Dirichlet and rigid mobility boundary-value problems for closed loop filaments of arbitrarily small circular cross-section. Also MATLAB codes for the classical slender-body theory approximation."
+repository-code: "https://github.com/dmalhotra/CSBQ"
+url: "https://csbq.readthedocs.io"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.10456743"
+    description: "Zenodo concept DOI (all versions)"
+license: Apache-2.0
+preferred-citation:
+  type: article
+  title: "Efficient convergent boundary integral methods for slender bodies"
+  authors:
+    - given-names: Dhairya
+      family-names: Malhotra
+    - given-names: Alex
+      family-names: Barnett
+  journal: "Journal of Computational Physics"
+  publisher:
+    name: "Elsevier BV"
+  volume: 503
+  start: 112855
+  year: 2024
+  month: 4
+  doi: "10.1016/j.jcp.2024.112855"
+references:
+  - type: software
+    title: "SCTL: Scientific Computing Template Library"
+    authors:
+      - given-names: Dhairya
+        family-names: Malhotra
+      - given-names: Tianyue
+        family-names: Li
+      - given-names: Robert
+        family-names: Blackwell
+      - given-names: Wen
+        family-names: Yan
+      - given-names: Xuanzhao
+        family-names: Gao
+    repository-code: "https://github.com/dmalhotra/SCTL"
+    url: "https://sctl.readthedocs.io"
+    license: Apache-2.0
+    notes: "CSBQ is built on SCTL, included as a submodule."
+  - type: book
+    title: "Spectral Methods in MATLAB"
+    authors:
+      - given-names: Lloyd N.
+        family-names: Trefethen
+    publisher:
+      name: "Society for Industrial and Applied Mathematics"
+    year: 2000
+    isbn: "9780898714654"
+    doi: "10.1137/1.9780898719598"
+    notes: "SBT/utils/gauss.m is gauss.m from this book."
+  - type: software
+    title: arrow
+    authors:
+      - given-names: Erik A.
+        family-names: Johnson
+    url: "https://www.mathworks.com/matlabcentral/fileexchange/278-arrow"
+    license: BSD-3-Clause
+    notes: "SBT/utils/arrow.m, from the MATLAB Central File Exchange."
+  - type: software
+    title: "hline and vline"
+    authors:
+      - given-names: Brandon
+        family-names: Kuczenski
+    url: "https://www.mathworks.com/matlabcentral/fileexchange/1039-hline-and-vline"
+    license: BSD-2-Clause
+    notes: "SBT/utils/hline.m and vline.m, from the MATLAB Central File Exchange."

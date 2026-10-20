@@ -65,6 +65,9 @@ function [h,yy,zz] = arrow(varargin)
 %  earlier MATLAB versions (ARROW for MATLAB 4.2c is available separately);
 %  some problems with perspective plots still exist.
 
+% From arrow, MATLAB Central File Exchange #278, by Erik A. Johnson (see LICENSE-arrow.txt)
+% SPDX-License-Identifier: BSD-3-Clause
+
 % Copyright (c)1995-2016, Dr. Erik A. Johnson <JohnsonE@usc.edu>, 5/25/2016
 % http://www.usc.edu/civil_eng/johnsone/
 

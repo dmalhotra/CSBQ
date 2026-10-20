@@ -35,6 +35,10 @@ function A = nyst_diagdiscont_sca_nonei(pan,tpan,ker,o)
 % 
 % When called with no arguments, does self-test.
 
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 % Barnett 12/23/21. general period 1/11/22. L&R pans not needed, duh! 9/22/23.
 % Todo: (old)
 %  variable order per panel? General breakpoints & get periodicity right?

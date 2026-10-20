@@ -7,6 +7,11 @@
 % t is the analytic description parameter. s will be arc-len coord param.
 %
 % Barnett 1/14/22
+
+% Copyright (C) 2021-2026 The Simons Foundation, Inc. and the CSBQ authors (see NOTICE)
+% Author: Alex Barnett
+% SPDX-License-Identifier: Apache-2.0
+
 clear; verb = 0;
 
 mu = 1;               % fluid viscosity
