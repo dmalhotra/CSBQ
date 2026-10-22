@@ -59,12 +59,43 @@ It is research software; use at your own risk. The following figures show some o
    Sedimentation of 512 rings each of aspect ratio 20, timestepped to 7-digit accuracy on 160 cores.
 
 
-Citing this work
------------------
+Citing CSBQ
+-----------
 
-If you find this code useful in your research, please cite our publication:
+If you use CSBQ, or code derived from it, please cite the software and the paper below:
 
-- Dhairya Malhotra and Alex Barnett, "Efficient Convergent Boundary Integral Methods for Slender Bodies," *Journal of Computational Physics*, vol. 503, p. 112855, Apr. 2024. DOI: [10.1016/j.jcp.2024.112855](http://dx.doi.org/10.1016/j.jcp.2024.112855)
+- D. Malhotra, A. Barnett, *CSBQ: Convergent slender-body quadrature*, https://github.com/dmalhotra/CSBQ, `doi:10.5281/zenodo.10456743 <https://doi.org/10.5281/zenodo.10456743>`__.
+- D. Malhotra, A. Barnett, "Efficient convergent boundary integral methods for slender bodies," *Journal of Computational Physics* 503 (2024) 112855, `doi:10.1016/j.jcp.2024.112855 <https://doi.org/10.1016/j.jcp.2024.112855>`__.
+
+.. raw:: html
+
+   <details>
+   <summary>BibTeX</summary>
+
+.. code-block:: bibtex
+
+   @software{csbq,
+     author    = {Malhotra, Dhairya and Barnett, Alex},
+     title     = {{CSBQ}: Convergent slender-body quadrature},
+     url       = {https://github.com/dmalhotra/CSBQ},
+     doi       = {10.5281/zenodo.10456743},
+     version   = {2.0.0},
+     year      = {2026}
+   }
+
+   @article{malhotra2024slender,
+     author  = {Malhotra, Dhairya and Barnett, Alex},
+     title   = {Efficient convergent boundary integral methods for slender bodies},
+     journal = {Journal of Computational Physics},
+     volume  = {503},
+     pages   = {112855},
+     year    = {2024},
+     doi     = {10.1016/j.jcp.2024.112855}
+   }
+
+.. raw:: html
+
+   </details>
 
 
 
