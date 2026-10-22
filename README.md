@@ -77,11 +77,38 @@ For slender-body numerical implementations in MATLAB, see `SBT/` directory.
 
 
 
-### Citing this work
+### Citing CSBQ
 
-If you find this code useful in your research, please cite our publication:
+If you use CSBQ, or code derived from it, please cite the software and the paper below (also listed in [CITATION.cff](CITATION.cff)):
 
-- Dhairya Malhotra and Alex Barnett. "Efficient convergent boundary integral methods for slender bodies." *Journal of Computational Physics* 503 (2024): 112855. doi:[10.1016/j.jcp.2024.112855](http://dx.doi.org/10.1016/j.jcp.2024.112855)
+- D. Malhotra, A. Barnett, *CSBQ: Convergent slender-body quadrature*, https://github.com/dmalhotra/CSBQ, [doi:10.5281/zenodo.10456743](https://doi.org/10.5281/zenodo.10456743).
+- D. Malhotra, A. Barnett, "Efficient convergent boundary integral methods for slender bodies," *Journal of Computational Physics* 503 (2024) 112855, [doi:10.1016/j.jcp.2024.112855](https://doi.org/10.1016/j.jcp.2024.112855).
+
+<details>
+<summary>BibTeX</summary>
+
+```bibtex
+@software{csbq,
+  author    = {Malhotra, Dhairya and Barnett, Alex},
+  title     = {{CSBQ}: Convergent slender-body quadrature},
+  url       = {https://github.com/dmalhotra/CSBQ},
+  doi       = {10.5281/zenodo.10456743},
+  version   = {2.0.0},
+  year      = {2026}
+}
+
+@article{malhotra2024slender,
+  author  = {Malhotra, Dhairya and Barnett, Alex},
+  title   = {Efficient convergent boundary integral methods for slender bodies},
+  journal = {Journal of Computational Physics},
+  volume  = {503},
+  pages   = {112855},
+  year    = {2024},
+  doi     = {10.1016/j.jcp.2024.112855}
+}
+```
+
+</details>
 
 ### License
 
