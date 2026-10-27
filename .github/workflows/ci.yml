@@ -1,0 +1,35 @@
+# Build and run the unit tests (make check) with g++ and OpenMP.
+#
+# The quadrature tables in data/ are regular git files (not git LFS), so a
+# plain checkout with the SCTL submodule has everything the tests need.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Unit tests (Ubuntu, g++)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out the repository and the SCTL submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Show the compiler
+        run: g++ --version
+
+      # Debug information (-g in the Makefile) doubles the compile time and the
+      # memory of the compiler, so leave it out (-g0).
+      - name: Build and run the unit tests
+        run: make -j"$(nproc)" check EXTRA_CXXFLAGS=-g0
