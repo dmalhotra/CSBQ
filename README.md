@@ -72,6 +72,7 @@ Everything is contained within `sctl::` namespace.
 Demo codes for learning to use the library are provided in `tutorial/`.
 Precomputed quadrature tables for Laplace and Stokes kernels and some geometry files are provided in `data/`.
 Test codes used to generate the results in the paper are provided in `test/`, along with SLURM scripts in `scripts/`.
+Unit tests are in `test/unit/`; `make check` builds and runs them.
 
 For slender-body numerical implementations in MATLAB, see `SBT/` directory.
 

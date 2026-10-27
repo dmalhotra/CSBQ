@@ -66,6 +66,10 @@ else
     CXXFLAGS += -gdwarf-4 -g -rdynamic # For stack trace on other systems
 endif
 
+# Extra flags, added last so that they take precedence (e.g. EXTRA_CXXFLAGS=-g0
+# builds without debug information, which takes about half the time)
+CXXFLAGS += $(EXTRA_CXXFLAGS)
+
 # Utility commands
 RM = rm -f
 MKDIRS = mkdir -p
@@ -93,11 +97,29 @@ TEST_BIN = \
     $(BINDIR)/stokes-mutual-drag \
     $(BINDIR)/tangle-adap-geom
 
+# Unit tests (in test/unit/, pass or fail by their exit status)
+UNIT_TEST_BIN = \
+    $(BINDIR)/unit/geometry \
+    $(BINDIR)/unit/layer-potentials \
+    $(BINDIR)/unit/scale-invariance
+
 # Default target: build all tutorial binaries
 all: $(TARGET_BIN)
 
 # Test target: build all test binaries
 test: $(TEST_BIN)
+
+# Check target: build and run the unit tests, and fail if any of them fails
+check: $(UNIT_TEST_BIN)
+	@failed=""; \
+	for t in $(UNIT_TEST_BIN); do \
+	  echo "Running $$t"; \
+	  $$t || failed="$$failed $$t"; \
+	done; \
+	if [ -n "$$failed" ]; then echo "Failed:$$failed"; exit 1; fi; \
+	echo "All unit tests passed"
+
+.PHONY: check
 
 # Rules for building binaries
 $(BINDIR)/%: $(OBJDIR)/%.o
