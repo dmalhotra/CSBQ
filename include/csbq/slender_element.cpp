@@ -1138,7 +1138,8 @@ namespace sctl {
         { // Set dist, e1, e2, e3
           e3 = dx*(-1/sqrt<RealType>(dot_prod(dx,dx)));
           e1 = Xt_X0 - e3 * dot_prod(Xt_X0,e3);
-          if (dot_prod(e1,e1) < machine_eps<RealType>()) e1 = e1_;
+          e1 = e1 - e3 * dot_prod(e1,e3); // project again: the first projection leaves a part along e3 of size eps*|Xt_X0|, not small relative to e1 for a target near the axis
+          if (dot_prod(e1,e1) == 0) e1 = e1_; // target on the axis
           e1 = e1 * (1/sqrt<RealType>(dot_prod(e1,e1)));
           e2 = cross_prod(e3, e1);
           e2 = e2 * (1/sqrt<RealType>(dot_prod(e2,e2)));
@@ -2644,7 +2645,7 @@ namespace sctl {
         Matrix<Real>::GEMM(  r_src, Matrix<Real>(        1,ElemOrder,(Iterator<Real>)radius.begin(),false), Minterp_quad_nds);
         Matrix<Real>::GEMM( dr_src, Matrix<Real>(        1,ElemOrder,(Iterator<Real>)    dr.begin(),false), Minterp_quad_nds);
         Matrix<Real>::GEMM( e1_src, Matrix<Real>(COORD_DIM,ElemOrder,(Iterator<Real>)    e1.begin(),false), Minterp_quad_nds);
-        for (Long j = 0; j < quad_nds.Dim(); j++) { // Set e2_src
+        for (Long j = 0; j < quad_nds.Dim(); j++) { // Set e1_src
           Vec3 e1, dx;
           for (Integer k = 0; k < COORD_DIM; k++) {
             e1(k,0) = e1_src[k][j];
