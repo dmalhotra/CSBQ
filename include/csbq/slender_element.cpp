@@ -1623,7 +1623,10 @@ namespace sctl {
     constexpr Integer Nlen = 20; // number of length samples in [elem_length/sqrt(2), elem_length*sqrt(2)]
     constexpr Integer max_digits = 19;
     const ValueType s_trg = SlenderElemList<ValueType>::CenterlineNodes(Ncheb)[trg_node_idx];
-    const Integer adap_depth = (Integer)(log<ValueType>(elem_length)/log<ValueType>(2)+4);
+    // Dyadic levels of the reference quadrature toward s_trg: its log-singular rule (order 16, exact for polynomials of
+    // degree 7 times 1 and log) then spans at most 1/256 of the element, short enough to resolve the density, and at
+    // most r/256, well inside the distance 2r of the singularities of the ring-integrated kernel.
+    const Integer adap_depth = std::max<Integer>(8, (Integer)(log<ValueType>(elem_length)/log<ValueType>(2)+8));
     const ValueType eps_buffer = std::min<ValueType>(3e-2/elem_length, 3e-4); // distance of closest node points to s_trg
     const ValueType eps = 8*machine_eps<ValueType>();
 
