@@ -1716,6 +1716,53 @@ namespace sctl {
       InterpQuadRule<ValueType>::Build(quad_nds, quad_wts,  Mintegrands, nds, wts, eps_vec, Vector<Long>(), range0, range1);
       SCTL_ASSERT(quad_nds.Dim() == max_digits);
       SCTL_ASSERT(quad_wts.Dim() == max_digits);
+      { // The rule for d digits: the one with the fewest nodes that integrates the training integrands to 10^-d,
+        // relative to the largest integral at each length, and whose weights cancel little (sum |w| <= 2 |sum w|).
+        // These rules interpolate, with as many nodes as integrands, and their weights can be negative and large.
+        const Long Nint = Mintegrands.Dim(1), B = Nint/Nlen;
+        Vector<std::pair<ValueType,Long>> sorted_nds(nds.Dim());
+        for (Long i = 0; i < nds.Dim(); i++) sorted_nds[i] = std::make_pair(nds[i], i);
+        std::sort(sorted_nds.begin(), sorted_nds.end());
+        auto integrals = [&](Vector<ValueType>& I, const Vector<ValueType>& qnds, const Vector<ValueType>& qwts) { // a rule on the nodes nds
+          Vector<Long> rows(qnds.Dim());
+          for (Long q = 0; q < qnds.Dim(); q++) rows[q] = std::lower_bound(sorted_nds.begin(), sorted_nds.end(), std::make_pair(qnds[q], (Long)0))->second;
+          I.ReInit(Nint);
+          #pragma omp parallel for schedule(static)
+          for (Long j = 0; j < Nint; j++) {
+            ValueType sum = 0;
+            for (Long q = 0; q < rows.Dim(); q++) sum += qwts[q] * Mintegrands[rows[q]][j];
+            I[j] = sum;
+          }
+        };
+        Vector<ValueType> I_ref, I, scale(Nlen), err(max_digits), cancel(max_digits);
+        integrals(I_ref, nds, wts);
+        scale = 0;
+        for (Long j = 0; j < Nint; j++) scale[j/B] = std::max<ValueType>(scale[j/B], fabs(I_ref[j]));
+        for (Long e = 0; e < max_digits; e++) {
+          integrals(I, quad_nds[e], quad_wts[e]);
+          err[e] = 0;
+          for (Long j = 0; j < Nint; j++) err[e] = std::max<ValueType>(err[e], fabs(I[j]-I_ref[j]) / scale[j/B]);
+          ValueType sum = 0, sum_abs = 0;
+          for (const auto w : quad_wts[e]) { sum += w; sum_abs += fabs(w); }
+          cancel[e] = sum_abs / fabs(sum);
+        }
+        Vector<Vector<ValueType>> nds_sel(max_digits), wts_sel(max_digits);
+        for (Long d = 0; d < max_digits; d++) {
+          Long best = -1;
+          for (Long e = 0; e < max_digits; e++) {
+            if (err[e] <= eps_vec[d] && cancel[e] <= 2 && (best < 0 || quad_nds[e].Dim() < quad_nds[best].Dim())) best = e;
+          }
+          if (best < 0) { // none qualifies: prefer weights that cancel little, then the smaller error
+            for (Long e = 0; e < max_digits; e++) {
+              if (best < 0 || (cancel[e] <= 2) > (cancel[best] <= 2) || ((cancel[e] <= 2) == (cancel[best] <= 2) && err[e] < err[best])) best = e;
+            }
+          }
+          nds_sel[d] = quad_nds[best];
+          wts_sel[d] = quad_wts[best];
+        }
+        quad_nds = nds_sel;
+        quad_wts = wts_sel;
+      }
       for (Long k = 0; k < max_digits; k++) {
         for (Long i = 0; i < quad_nds[k].Dim(); i++) {
           const ValueType qx0 = quad_nds[k][i];
