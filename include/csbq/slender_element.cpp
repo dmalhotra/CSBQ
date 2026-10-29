@@ -25,6 +25,16 @@
 #include <sctl.hpp>
 #include "csbq/slender_element.hpp"    // for SlenderElemList
 
+// Build quadrature rules on the fly instead of reading the precomputed tables: CSBQ_ADAPTIVE_RING_QUAD for the ring
+// (toroidal) rules, CSBQ_ADAPTIVE_SELF_QUAD for the self-interaction rules along the element. The ring rules are always
+// built on the fly when Real is wider than double.
+#ifndef CSBQ_ADAPTIVE_RING_QUAD
+#define CSBQ_ADAPTIVE_RING_QUAD 0
+#endif
+#ifndef CSBQ_ADAPTIVE_SELF_QUAD
+#define CSBQ_ADAPTIVE_SELF_QUAD 0
+#endif
+
 namespace sctl {
 
 
@@ -1097,7 +1107,7 @@ namespace sctl {
     // return whether an adaptive quadrature rule has been used
     return (adap_depth >= crossover_adap_depth);
   }
-  template <Integer digits, Integer ModalUpsample, bool trg_dot_prod, class RealType, class Kernel, Integer adap=(sizeof(RealType)>sizeof(double))> static void toroidal_greens_fn_batched(Matrix<RealType>& M, const Tensor<RealType,true,3,1>& x_trg, const Tensor<RealType,true,3,1>& e_trg, const RealType r_trg, const Tensor<RealType,true,3,1>& n_trg, const Matrix<RealType>& x_src, const Matrix<RealType>& dx_src, const Matrix<RealType>& d2x_src, const Matrix<RealType>& r_src, const Matrix<RealType>& dr_src, const Matrix<RealType>& e1_src, const Kernel& ker, const Integer FourierModes) {
+  template <Integer digits, Integer ModalUpsample, bool trg_dot_prod, class RealType, class Kernel, Integer adap=(CSBQ_ADAPTIVE_RING_QUAD || sizeof(RealType)>sizeof(double))> static void toroidal_greens_fn_batched(Matrix<RealType>& M, const Tensor<RealType,true,3,1>& x_trg, const Tensor<RealType,true,3,1>& e_trg, const RealType r_trg, const Tensor<RealType,true,3,1>& n_trg, const Matrix<RealType>& x_src, const Matrix<RealType>& dx_src, const Matrix<RealType>& d2x_src, const Matrix<RealType>& r_src, const Matrix<RealType>& dr_src, const Matrix<RealType>& e1_src, const Kernel& ker, const Integer FourierModes) {
     static constexpr Integer VecLen = DefaultVecLen<RealType>();
     using VecType = Vec<RealType, VecLen>;
 
@@ -1549,7 +1559,7 @@ namespace sctl {
     }
     return nds_wts;
   }
-  template <Integer ModalUpsample, class Real, class Kernel, bool trg_dot_prod, bool adap_quad=false> static void SpecialQuadRule(Vector<Real>& nds, Vector<Real>& wts, const Integer ElemOrder, const Integer trg_node_idx, const Real elem_radius, const Real elem_length, const Integer digits) {
+  template <Integer ModalUpsample, class Real, class Kernel, bool trg_dot_prod, bool adap_quad=CSBQ_ADAPTIVE_SELF_QUAD> static void SpecialQuadRule(Vector<Real>& nds, Vector<Real>& wts, const Integer ElemOrder, const Integer trg_node_idx, const Real elem_radius, const Real elem_length, const Integer digits) {
     static constexpr Integer max_adap_depth = 30+7; // TODO
     constexpr Integer MaxFourierModes = 8; // TODO
     constexpr Integer MaxElemOrder = 100;
@@ -2117,7 +2127,7 @@ namespace sctl {
 
       Matrix<Real> Mfourier;
       Vector<Real> nds_cos, nds_sin, wts;
-      ToroidalSpecialQuadRule<Real,DefaultVecLen<Real>(),ModalUpsample,Kernel,false>(Mfourier, nds_cos, nds_sin, wts, FourierModes+ModalUpsample, (Real)1, 1); // TODO: replace by toroidal_greens_fn_batched
+      ToroidalSpecialQuadRule<Real,DefaultVecLen<Real>(),ModalUpsample,Kernel,(CSBQ_ADAPTIVE_RING_QUAD || sizeof(Real)>sizeof(double))>(Mfourier, nds_cos, nds_sin, wts, FourierModes+ModalUpsample, (Real)1, 1); // adap: the default of toroidal_greens_fn_batched. TODO: replace by toroidal_greens_fn_batched
 
       Vector<Real> quad_nds, quad_wts;
       Matrix<Real> Minterp_quad_nds;
