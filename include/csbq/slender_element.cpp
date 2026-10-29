@@ -1003,7 +1003,13 @@ namespace sctl {
     }
     for (Integer idx = 0; idx < crossover_adap_depth; idx++) { // Use trapezoidal rule up to crossover_adap_depth
       for (Integer digits = 0; digits < max_digits; digits++) {
-        Long N = std::max<Long>(digits*pow<Long,Long>(2,idx), Nmodes); // TODO: determine optimal order by testing error or adaptively
+        // With N nodes, the error for mode k comes from the kernel's Fourier coefficients of order N-k, which decay like
+        // rho^-j: at least as fast as 7.28^-j at level 0 and 4.14^-j at level 1 (target at the near end of the level, in
+        // the plane of the loop, outside). The rules assume a resolved density, whose Fourier coefficients decay from O(1)
+        // to 10^-digits at the last mode: the error, about sum_k c_k rho^-(N-k), is then 10^-digits for N about
+        // max(Nmodes-1, digits/log10(rho)). The double-layer kernels need 4 more nodes at level 0 and 6 at level 1.
+        const double log10_rho = (idx == 0 ? 0.862 : 0.617);
+        Long N = std::max<Long>(Nmodes-1, (Long)ceil(digits/log10_rho)) + 4 + 2*idx;
         data[idx*max_digits+digits].ReInit(3*N);
         for (Long i = 0; i < N; i++) {
           ValueType quad_nds = i/(ValueType)N;
