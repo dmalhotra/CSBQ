@@ -895,7 +895,7 @@ namespace sctl {
               for (Long i = 0; i < M; i++) {
                 for (Long j = 0; j < M; j++) {
                   ValueType theta = i*2*const_pi<ValueType>()/(M);
-                  ValueType r = (0.5 + i*0.5/(M)) * dist;
+                  ValueType r = (0.5 + j*0.5/(M-1)) * dist;
                   ValueType x0 = r*cos<ValueType>(theta);
                   ValueType x1 = 0;
                   ValueType x2 = r*sin<ValueType>(theta);
@@ -908,7 +908,10 @@ namespace sctl {
               }
               return Xtrg;
             };
-            const Vector<ValueType> Xtrg = trg_coord(dist, 25); // TODO: determine optimal sample count
+            // 24 angles, a multiple of 4: the targets include the directions parallel to the axis of the loop, where the
+            // double-layer kernel vanishes at the nearest point of the loop and the rest of the loop decides the integral,
+            // and the direction toward the axis
+            const Vector<ValueType> Xtrg = trg_coord(dist, 24); // TODO: determine optimal sample count
             const Long Ntrg = Xtrg.Dim()/COORD_DIM;
 
             const Integer DyadicRefDepth = std::max<Integer>(1,(Integer)(log(dist/2/const_pi<ValueType>())/log(0.5)+0.5));
