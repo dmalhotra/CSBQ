@@ -809,6 +809,14 @@ namespace sctl {
   }
 
   /**
+   * The precomputed quadrature tables go by the type of singularity: the gradient of the Laplace single layer
+   * (Laplace3D_FxdU) and the Stokes traction (Stokes3D_FxT) use the tables of the double layer, in the ring rules and
+   * in the self-interaction rules with trg_dot_prod. On the surface, the normal derivative of the single layer is weakly
+   * singular like the double layer; the full gradient isn't.
+   */
+  template <class Kernel> using QuadTableKernel = typename std::conditional<std::is_same<Kernel,Laplace3D_FxdU>::value, Laplace3D_DxU, typename std::conditional<std::is_same<Kernel,Stokes3D_FxT>::value, Stokes3D_DxU, Kernel>::type>::type;
+
+  /**
    * The panels and node counts of SinhQuadRule: h, the end of the first panel in theta, T = asinh(h/dlt), its end in t,
    * and the nodes Nin on it and Nout on the second panel.
    */
@@ -1190,6 +1198,9 @@ namespace sctl {
     return quad_rule_lst;
   }
   template <class RealType, Integer VecLen, Integer ModalUpsample, class Kernel, Integer adap> static bool ToroidalSpecialQuadRule(Matrix<RealType>& Mfourier, Vector<RealType>& nds_cos_theta, Vector<RealType>& nds_sin_theta, Vector<RealType>& wts, const Integer Nmodes, RealType r_R0, Integer digits) {
+    if constexpr (!std::is_same<QuadTableKernel<Kernel>,Kernel>::value) { // the rules of the kernel with the same singularity
+      return ToroidalSpecialQuadRule<RealType,VecLen,ModalUpsample,QuadTableKernel<Kernel>,adap>(Mfourier, nds_cos_theta, nds_sin_theta, wts, Nmodes, r_R0, digits);
+    }
     static constexpr Integer max_depth = std::max<Integer>(30, TypeTraits<RealType>::SigBits-10); // levels of the rules kept in memory (as in BuildToroidalSpecialQuadRules)
     static constexpr Integer crossover_adap_depth = 2;
     static constexpr Integer max_digits = 20;
@@ -1782,6 +1793,9 @@ namespace sctl {
     return nds_wts;
   }
   template <Integer ModalUpsample, class Real, class Kernel, bool trg_dot_prod, bool adap_quad=CSBQ_ADAPTIVE_SELF_QUAD> static void SpecialQuadRule(Vector<Real>& nds, Vector<Real>& wts, const Integer ElemOrder, const Integer trg_node_idx, const Real elem_radius, const Real elem_length, const Integer digits) {
+    if constexpr (trg_dot_prod && !std::is_same<QuadTableKernel<Kernel>,Kernel>::value) { // the rules of the kernel with the same singularity
+      return SpecialQuadRule<ModalUpsample,Real,QuadTableKernel<Kernel>,false,adap_quad>(nds, wts, ElemOrder, trg_node_idx, elem_radius, elem_length, digits);
+    }
     static constexpr Integer max_adap_depth = 30+7; // TODO
     constexpr Integer MaxFourierModes = 8; // TODO
     constexpr Integer MaxElemOrder = 100;
