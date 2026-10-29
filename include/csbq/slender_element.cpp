@@ -1878,7 +1878,9 @@ namespace sctl {
       wts.ReInit(wts0.Dim(), (Iterator<Real>)wts0.begin(), false);
       nds.ReInit(nds0.Dim(), (Iterator<Real>)nds0.begin(), false);
     } else { // adaptive, also for elements longer than the longest table
-      const Integer RefLevels = (Integer)(log<Real>(elem_length/elem_radius)/log<Real>(2)-1);
+      // the log-singular rule spans at most r/16 (inside the distance 2r of the singularities of the ring-integrated
+      // kernel) and at most 1/16 of the element (short enough to resolve the density)
+      const Integer RefLevels = std::max<Integer>(4, (Integer)(log<Real>(elem_length/elem_radius)/log<Real>(2)+4));
       const auto& cheb_nds = SlenderElemList<Real>::CenterlineNodes(ElemOrder);
       const Real s_trg = cheb_nds[trg_node_idx];
       DyadicQuad_s(nds, wts, LegQuadOrder(digits), LogSingularQuadOrder(digits), s_trg, RefLevels, false);
