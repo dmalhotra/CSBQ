@@ -1105,7 +1105,6 @@ namespace sctl {
     using Vec3 = Tensor<RealType,true,COORD_DIM,1>;
     static constexpr Integer KDIM0 = Kernel::SrcDim();
     static constexpr Integer KDIM1 = Kernel::TrgDim()/(trg_dot_prod?COORD_DIM:1);
-    static constexpr Integer Nbuff = 10000; // TODO
 
     const Long BatchSize = M.Dim(0);
     SCTL_ASSERT(M.Dim(1) == KDIM0*KDIM1*FourierModes*2);
@@ -1154,7 +1153,6 @@ namespace sctl {
         Vector<RealType> nds_cos_theta, nds_sin_theta, wts;
         ToroidalSpecialQuadRule<RealType,VecLen,ModalUpsample,Kernel,adap>(Mexp_iktheta, nds_cos_theta, nds_sin_theta, wts, FourierModes+ModalUpsample, dist/r, digits);
         const Long Nnds = wts.Dim();
-        SCTL_ASSERT(Nnds < Nbuff);
 
         { // Set M
           const RealType d2x_dot_e1 = e1(0,0)*d2x(0,0) + e1(1,0)*d2x(1,0) + e1(2,0)*d2x(2,0);
@@ -1166,8 +1164,8 @@ namespace sctl {
           const VecType vec_dx[3] = {dx(0,0), dx(1,0), dx(2,0)};
           const VecType vec_dy0[3] = {Xt(0,0)-x(0,0), Xt(1,0)-x(1,0), Xt(2,0)-x(2,0)};
 
-          alignas(sizeof(VecType)) StaticArray<char,KDIM0*KDIM1*Nbuff*sizeof(RealType)> mem_buff;
-          Matrix<RealType> Mker_da(KDIM0*KDIM1, Nnds, (Iterator<RealType>)(Iterator<char>)mem_buff, false);
+          ScratchBuf<RealType> mem_buff(KDIM0*KDIM1*Nnds);
+          Matrix<RealType> Mker_da(KDIM0*KDIM1, Nnds, mem_buff.begin(), false);
           for (Integer j = 0; j < Nnds; j+=VecLen) { // Set Mker_da
             VecType dy[3], n[3], da;
             { // Set dy, n, da
