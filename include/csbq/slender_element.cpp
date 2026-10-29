@@ -2091,6 +2091,19 @@ namespace sctl {
     Matrix<Real>::GEMM(Mout_, Mcheb[ElemOrder], Mtmp);
   }
 
+  /**
+   * Call fn(std::integral_constant<Integer,digits>()) with the number of digits of the accuracy tolerance tol, at most
+   * the precision of Real and at most 18, the most the precomputed rules have (SpecialQuadRule has 19 digits, 0 to 18;
+   * ToroidalSpecialQuadRule has 20 and is called with digits+1): up to 15 digits for double, 18 for long double and quad.
+   */
+  template <class Real, Integer digits = 0, class Fn> static void DigitsDispatch(const Real tol, const Fn& fn) {
+    constexpr Integer MaxDigits = std::min<Integer>(18, (Integer)(TypeTraits<Real>::SigBits*0.30103));
+    if constexpr (digits < MaxDigits) {
+      if (tol <= pow<digits+1,Real>((Real)0.1)) return DigitsDispatch<Real,digits+1>(tol, fn);
+    }
+    fn(std::integral_constant<Integer,digits>());
+  }
+
   template <class Real> template <class Kernel> void SlenderElemList<Real>::SelfInterac(Vector<Matrix<Real>>& M_lst, const Kernel& ker, Real tol, bool trg_dot_prod, const ElementListBase<Real>* self) {
     const auto& elem_lst = *dynamic_cast<const SlenderElemList*>(self);
     const Long Nelem = elem_lst.cheb_order.Dim();
@@ -2119,81 +2132,21 @@ namespace sctl {
     if (trg_dot_prod) {
       #pragma omp parallel for //schedule(static)
       for (Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
-        if      (tol <= pow<15,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper<15,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow<14,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper<14,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow<13,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper<13,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow<12,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper<12,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow<11,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper<11,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow<10,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper<10,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 9,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 9,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 8,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 8,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 7,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 7,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 6,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 6,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 5,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 5,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 4,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 4,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 3,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 3,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 2,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 2,true,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 1,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 1,true,Kernel>(ker, elem_idx);
-        else                                     M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 0,true,Kernel>(ker, elem_idx);
+        DigitsDispatch(tol, [&](auto digits) { M_lst[elem_idx] = elem_lst.template SelfInteracHelper<decltype(digits)::value,true,Kernel>(ker, elem_idx); });
       }
     } else {
       #pragma omp parallel for //schedule(static)
       for (Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
-        if      (tol <= pow<15,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper<15,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow<14,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper<14,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow<13,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper<13,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow<12,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper<12,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow<11,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper<11,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow<10,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper<10,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 9,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 9,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 8,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 8,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 7,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 7,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 6,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 6,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 5,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 5,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 4,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 4,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 3,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 3,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 2,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 2,false,Kernel>(ker, elem_idx);
-        else if (tol <= pow< 1,Real>((Real)0.1)) M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 1,false,Kernel>(ker, elem_idx);
-        else                                     M_lst[elem_idx] = elem_lst.template SelfInteracHelper< 0,false,Kernel>(ker, elem_idx);
+        DigitsDispatch(tol, [&](auto digits) { M_lst[elem_idx] = elem_lst.template SelfInteracHelper<decltype(digits)::value,false,Kernel>(ker, elem_idx); });
       }
     }
   }
   template <class Real> template <class Kernel> void SlenderElemList<Real>::NearInterac(Matrix<Real>& M, const Vector<Real>& Xtrg, const Vector<Real>& normal_trg, const Kernel& ker, Real tol, const Long elem_idx, const ElementListBase<Real>* self) {
     const auto& elem_lst = *dynamic_cast<const SlenderElemList*>(self);
     if (normal_trg.Dim()) {
-      if      (tol <= pow<15,Real>((Real)0.1)) elem_lst.template NearInteracHelper<15,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow<14,Real>((Real)0.1)) elem_lst.template NearInteracHelper<14,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow<13,Real>((Real)0.1)) elem_lst.template NearInteracHelper<13,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow<12,Real>((Real)0.1)) elem_lst.template NearInteracHelper<12,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow<11,Real>((Real)0.1)) elem_lst.template NearInteracHelper<11,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow<10,Real>((Real)0.1)) elem_lst.template NearInteracHelper<10,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 9,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 9,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 8,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 8,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 7,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 7,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 6,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 6,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 5,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 5,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 4,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 4,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 3,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 3,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 2,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 2,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 1,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 1,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else                                     elem_lst.template NearInteracHelper< 0,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
+      DigitsDispatch(tol, [&](auto digits) { elem_lst.template NearInteracHelper<decltype(digits)::value,true,Kernel>(M, Xtrg, normal_trg, ker, elem_idx); });
     } else {
-      if      (tol <= pow<15,Real>((Real)0.1)) elem_lst.template NearInteracHelper<15,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow<14,Real>((Real)0.1)) elem_lst.template NearInteracHelper<14,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow<13,Real>((Real)0.1)) elem_lst.template NearInteracHelper<13,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow<12,Real>((Real)0.1)) elem_lst.template NearInteracHelper<12,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow<11,Real>((Real)0.1)) elem_lst.template NearInteracHelper<11,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow<10,Real>((Real)0.1)) elem_lst.template NearInteracHelper<10,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 9,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 9,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 8,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 8,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 7,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 7,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 6,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 6,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 5,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 5,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 4,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 4,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 3,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 3,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 2,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 2,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else if (tol <= pow< 1,Real>((Real)0.1)) elem_lst.template NearInteracHelper< 1,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
-      else                                     elem_lst.template NearInteracHelper< 0,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx);
+      DigitsDispatch(tol, [&](auto digits) { elem_lst.template NearInteracHelper<decltype(digits)::value,false,Kernel>(M, Xtrg, normal_trg, ker, elem_idx); });
     }
   }
   template <class Real> template <Integer digits, bool trg_dot_prod, class Kernel> void SlenderElemList<Real>::NearInteracHelper(Matrix<Real>& M, const Vector<Real>& Xtrg, const Vector<Real>& normal_trg, const Kernel& ker, const Long elem_idx) const {
