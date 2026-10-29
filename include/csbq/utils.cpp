@@ -390,11 +390,11 @@ template <class ValueType, class Real> void GeomTangle(SlenderElemList<Real>& el
 }
 
 template <class ValueType, class Real> void GeomSphere(SlenderElemList<Real>& elem_lst0, Vector<ValueType> panel_len, Vector<Long> FourierOrder, const Comm& comm, const ValueType R, const Long ElemOrder) {
-  auto geom_fn = [R](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType theta){
-    x = R * cos<ValueType>(theta/2);
+  auto geom_fn = [R](ValueType& x, ValueType& y, ValueType& z, ValueType& r, const ValueType s){ // s in [0,1], pole to pole
+    x = R * cos<ValueType>(const_pi<ValueType>()*s);
     y = 0;
     z = 0;
-    r = R * sin<ValueType>(theta/2);
+    r = R * sin<ValueType>(const_pi<ValueType>()*s);
   };
   GenericGeom<ValueType>(elem_lst0, geom_fn, panel_len, FourierOrder, comm, ElemOrder, 14, 24, (ValueType)1);
 }
