@@ -1767,7 +1767,11 @@ namespace sctl {
       return;
     }
 
-    if (!adap_quad) {
+    // Elements shorter than the shortest table (length/radius sqrt(2)*2^-7) use it: along s, their ring-integrated kernel
+    // is a log singularity plus a smooth part, as for the shortest table. Elements longer than the longest table
+    // (length/radius sqrt(2)*2^30) use the adaptive rules.
+    const Long quad_idx = std::min<Long>(max_adap_depth-1, (Long)std::floor((max_adap_depth-7) - log2((double)(elem_length/elem_radius*sqrt<Real>(0.5)))));
+    if (!adap_quad && quad_idx >= 0) {
       auto load_special_quad_rule = [](Vector<Vector<Real>>& nds_lst, Vector<Vector<Real>>& wts_lst, const Integer ElemOrder){
         const std::string fname = std::string(CSBQ_QUOTEME(CSBQ_DATA_PATH)) + std::string("/special_quad_q") + std::to_string(ElemOrder) + "_" + Kernel::Name() + (trg_dot_prod ? "_dotXn" : "");
         const auto cheb_nds_ = SlenderElemList<ValueType>::CenterlineNodes(ElemOrder);
@@ -1819,21 +1823,11 @@ namespace sctl {
       }
       }
 
-      Long quad_idx = (Long)((max_adap_depth-7) - log2((double)(elem_length/elem_radius*sqrt<Real>(0.5))));
-      if (quad_idx < 0 || quad_idx > max_adap_depth-1) {
-        static const int warn_once = []() {
-          SCTL_WARN("Slender element aspect-ratio is outside of the range of precomputed quadratures; accuracy may be severely degraded.");
-          return 0;
-        }();
-        SCTL_UNUSED(warn_once);
-      }
-      quad_idx = std::max<Integer>(0, std::min<Integer>(max_adap_depth-1, quad_idx));
-
       const auto& wts0 = wts_lst[ElemOrder][(quad_idx*ElemOrder+trg_node_idx) * max_digits+digits];
       const auto& nds0 = nds_lst[ElemOrder][(quad_idx*ElemOrder+trg_node_idx) * max_digits+digits];
       wts.ReInit(wts0.Dim(), (Iterator<Real>)wts0.begin(), false);
       nds.ReInit(nds0.Dim(), (Iterator<Real>)nds0.begin(), false);
-    } else {
+    } else { // adaptive, also for elements longer than the longest table
       const Integer RefLevels = (Integer)(log<Real>(elem_length/elem_radius)/log<Real>(2)-1);
       const auto& cheb_nds = SlenderElemList<Real>::CenterlineNodes(ElemOrder);
       const Real s_trg = cheb_nds[trg_node_idx];
