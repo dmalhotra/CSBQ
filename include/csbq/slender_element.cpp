@@ -809,6 +809,22 @@ namespace sctl {
   }
 
   /**
+   * The panels and node counts of SinhQuadRule: h, the end of the first panel in theta, T = asinh(h/dlt), its end in t,
+   * and the nodes Nin on it and Nout on the second panel.
+   */
+  template <class ValueType> static void SinhQuadRuleSize(ValueType& h, ValueType& T, Integer& Nin, Integer& Nout, const ValueType dlt, const Integer digits, const Integer Nmodes) {
+    h = std::min<ValueType>(const_pi<ValueType>()/8, 15/(ValueType)std::max<Integer>(Nmodes-1,1)); // at most 15 radians of the highest mode on the first panel
+    const ValueType x = h/dlt;
+    T = log<ValueType>(x) + log<ValueType>(1 + sqrt<ValueType>(1 + 1/(x*x))); // asinh(h/dlt), also for h/dlt beyond the square root of the largest number
+    // The node counts are fitted to those measured for the Laplace and Stokes single and double layers and the Stokes
+    // traction against integrals in quadruple precision (Nmodes 4 to 30), and meet the digits for Nmodes 4 to 52 with
+    // dist/dlt in [1,2), for dlt from 2*pi*2^-2 to 2*pi*2^-44 and, in a model of the integrals, down to 2*pi*2^-101.
+    // On the second panel, the kernel needs as many nodes as the Fourier modes for Nmodes = 10.
+    Nin = (Integer)ceil((double)(digits+3) * std::max<double>(sqrt((double)T), 1.2)) + 2;
+    Nout = (Integer)ceil(std::max<Integer>(Nmodes-1,9)*(const_pi<double>()-(double)h)/3.8 + 1.2*digits + 5);
+  }
+
+  /**
    * Quadrature rule in theta on [-pi, pi] for the integrals over the source loop (a unit circle) of the kernel times the
    * Fourier modes up to Nmodes-1, with the error below 10^-digits relative to the largest integral, for targets at
    * distance dist >= dlt from the loop and nearest to the point theta = 0. The kernel has branch points at
@@ -821,14 +837,9 @@ namespace sctl {
    */
   template <class ValueType, class GaussLegendre> static void SinhQuadRule(Vector<ValueType>& nds, Vector<ValueType>& wts, const ValueType dlt, const Integer digits, const Integer Nmodes, const GaussLegendre& gauss_legendre) {
     const ValueType pi = const_pi<ValueType>();
-    const ValueType h = std::min<ValueType>(pi/8, 15/(ValueType)std::max<Integer>(Nmodes-1,1)); // at most 15 radians of the highest mode on the first panel
-    const ValueType x = h/dlt, T = log<ValueType>(x) + log<ValueType>(1 + sqrt<ValueType>(1 + 1/(x*x))); // asinh(h/dlt), also for h/dlt beyond the square root of the largest number
-    // The node counts are fitted to those measured for the Laplace and Stokes single and double layers and the Stokes
-    // traction against integrals in quadruple precision (Nmodes 4 to 30), and meet the digits for Nmodes 4 to 52 with
-    // dist/dlt in [1,2), for dlt from 2*pi*2^-2 to 2*pi*2^-44 and, in a model of the integrals, down to 2*pi*2^-101.
-    // On the second panel, the kernel needs as many nodes as the Fourier modes for Nmodes = 10.
-    const Integer Nin = (Integer)ceil((double)(digits+3) * std::max<double>(sqrt((double)T), 1.2)) + 2;
-    const Integer Nout = (Integer)ceil(std::max<Integer>(Nmodes-1,9)*(const_pi<double>()-(double)h)/3.8 + 1.2*digits + 5);
+    ValueType h, T;
+    Integer Nin, Nout;
+    SinhQuadRuleSize(h, T, Nin, Nout, dlt, digits, Nmodes);
 
     const Long N = Nin + Nout;
     nds.ReInit(2*N);
@@ -851,6 +862,52 @@ namespace sctl {
     for (Long i = 0; i < N; i++) {
       nds[N-1-i] = -nds[N+i];
       wts[N-1-i] = wts[N+i];
+    }
+  }
+
+  /**
+   * The discretization of the integrands of the ring tables, from which the generalized Chebyshev rules of
+   * BuildToroidalSpecialQuadRules take their nodes, for targets at distance dist >= dlt from the loop: the panels of
+   * SinhQuadRule for 19 digits with twice the nodes, since the discretization integrates products of the integrands,
+   * except near the nearest point theta = 0, where one panel in t on [-1, 1] spans it, so that no node is closer to it
+   * than about 0.04*dlt. Nodes in theta/(2*pi), ascending and symmetric about 0, with weights for theta/(2*pi).
+   */
+  template <class ValueType> static void SinhDiscretization(Vector<ValueType>& nds, Vector<ValueType>& wts, const ValueType dlt, const Integer Nmodes) {
+    const ValueType pi = const_pi<ValueType>();
+    ValueType h, T;
+    Integer Nin, Nout;
+    SinhQuadRuleSize(h, T, Nin, Nout, dlt, 19, Nmodes);
+    const ValueType t1 = std::min<ValueType>(1, T);
+    constexpr Integer Nmid = 40; // on t in [-t1, t1]
+    const Integer Nsinh = (T > t1 ? std::max<Integer>(8, 2*Nin) : 0), Nouter = 2*Nout; // on t in [t1, T] and theta in [h, pi]
+
+    const Long N = Nmid/2 + Nsinh + Nouter;
+    nds.ReInit(2*N);
+    wts.ReInit(2*N);
+    Long i = N;
+    Vector<ValueType> x, w; // Gauss-Legendre on [0,1]
+    LegQuadRule<ValueType>::ComputeNdsWts(&x, &w, Nmid);
+    for (Integer j = Nmid/2; j < Nmid; j++, i++) {
+      const ValueType t = t1*(2*x[j]-1), et = exp<ValueType>(t);
+      nds[i] = dlt*(et-1/et)/2 / (2*pi);
+      wts[i] = dlt*(et+1/et)/2 * 2*t1*w[j] / (2*pi);
+    }
+    if (Nsinh) {
+      LegQuadRule<ValueType>::ComputeNdsWts(&x, &w, Nsinh);
+      for (Integer j = 0; j < Nsinh; j++, i++) {
+        const ValueType t = t1 + (T-t1)*x[j], et = exp<ValueType>(t);
+        nds[i] = dlt*(et-1/et)/2 / (2*pi);
+        wts[i] = dlt*(et+1/et)/2 * (T-t1)*w[j] / (2*pi);
+      }
+    }
+    LegQuadRule<ValueType>::ComputeNdsWts(&x, &w, Nouter);
+    for (Integer j = 0; j < Nouter; j++, i++) {
+      nds[i] = (h + (pi-h)*x[j]) / (2*pi);
+      wts[i] = (pi-h)*w[j] / (2*pi);
+    }
+    for (Long k = 0; k < N; k++) {
+      nds[N-1-k] = -nds[N+k];
+      wts[N-1-k] = wts[N+k];
     }
   }
 
@@ -892,44 +949,6 @@ namespace sctl {
     using ValueType = long double;
     #endif
 
-    auto DyadicPanelQuadRule = [](Vector<ValueType>& nds, Vector<ValueType>& wts, const Integer depth, const Integer LegOrder, const Integer PanelRepeat) {
-      Vector<ValueType> panel_nds, panel_wts;
-      { // Set panel_nds, panel_wts
-        auto leg_quad = LegendreQuadRule<ValueType>(LegOrder);
-        const auto& leg_nds = leg_quad.first;
-        const auto& leg_wts = leg_quad.second;
-
-        const Long rep = PanelRepeat;
-        const ValueType scal = 1/(ValueType)rep;
-        for (Long i = 0; i < rep; i++) {
-          for (Long j = 0; j < leg_nds.Dim(); j++) {
-            panel_nds.PushBack(leg_nds[j]*scal + i*scal);
-            panel_wts.PushBack(leg_wts[j]*scal);
-          }
-        }
-      }
-
-      SCTL_ASSERT(depth);
-      Long N = 2*depth;
-      ValueType l = 0.5;
-      nds.ReInit(N*panel_nds.Dim());
-      wts.ReInit(N*panel_nds.Dim());
-      for (Integer idx = 0; idx < depth; idx++) {
-        l *= (idx<depth-1 ? 0.5 : 1.0);
-        Vector<ValueType> nds0(panel_nds.Dim(), nds.begin()+(  idx  )*panel_nds.Dim(), false);
-        Vector<ValueType> nds1(panel_nds.Dim(), nds.begin()+(N-idx-1)*panel_nds.Dim(), false);
-        Vector<ValueType> wts0(panel_wts.Dim(), wts.begin()+(  idx  )*panel_wts.Dim(), false);
-        Vector<ValueType> wts1(panel_wts.Dim(), wts.begin()+(N-idx-1)*panel_wts.Dim(), false);
-        for (Long i = 0; i < panel_nds.Dim(); i++) {
-          ValueType s = panel_nds[i]*l + (idx<depth-1 ? l : 0);
-          nds0[panel_nds.Dim()-1-i] =-s;
-          nds1[                  i] = s;
-          wts0[panel_nds.Dim()-1-i] = panel_wts[i]*l;
-          wts1[                  i] = panel_wts[i]*l;
-        }
-      }
-    };
-
     Vector<Vector<ValueType>> data;
     if (!adap) { // read from file
       ReadFile(data, fname);
@@ -943,7 +962,7 @@ namespace sctl {
         { // generate special quadrature rule
           Vector<ValueType> nds, wts;
           Matrix<ValueType> Mintegrands;
-          auto discretize_basis_functions = [Nmodes,&DyadicPanelQuadRule](Matrix<ValueType>& Mintegrands, Vector<ValueType>& nds, Vector<ValueType>& wts, const ValueType dist, const Integer LegOrder) {
+          auto discretize_basis_functions = [Nmodes](Matrix<ValueType>& Mintegrands, Vector<ValueType>& nds, Vector<ValueType>& wts, const ValueType dist) {
             auto trg_coord = [](ValueType dist, Long M) {
               Vector<ValueType> Xtrg; //(M*M*COORD_DIM);
               for (Long i = 0; i < M; i++) {
@@ -968,8 +987,7 @@ namespace sctl {
             const Vector<ValueType> Xtrg = trg_coord(dist, 24); // TODO: determine optimal sample count
             const Long Ntrg = Xtrg.Dim()/COORD_DIM;
 
-            const Integer DyadicRefDepth = std::max<Integer>(1,(Integer)(log(dist/2/const_pi<ValueType>())/log(0.5)+0.5));
-            DyadicPanelQuadRule(nds, wts, DyadicRefDepth, LegOrder, 1);
+            SinhDiscretization(nds, wts, dist/2, Nmodes);
 
             const Long Nnds = nds.Dim();
             Vector<std::complex<ValueType>> exp_itheta(Nnds), exp_iktheta(Nnds);
@@ -1011,7 +1029,7 @@ namespace sctl {
             }
           };
           const ValueType dist = 4*const_pi<ValueType>()*pow<ValueType,Long>(0.5,idx); // distance of target points from the source loop (which is a unit circle)
-          discretize_basis_functions(Mintegrands, nds, wts, dist, 35); // TODO: adaptively select Legendre order
+          discretize_basis_functions(Mintegrands, nds, wts, dist);
 
           Vector<ValueType> eps_vec;
           for (Long k = 0; k < max_digits; k++) eps_vec.PushBack(pow<ValueType,Long>(0.1,k));
