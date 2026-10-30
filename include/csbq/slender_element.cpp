@@ -18,6 +18,7 @@
 #include <functional>                  // for function
 #include <iomanip>                     // for operator<<, setw, setprecision
 #include <iostream>                    // for cout
+#include <map>                         // for map
 #include <sstream>                     // for basic_istringstream
 #include <string>                      // for char_traits, basic_string, all...
 #include <utility>                     // for pair
@@ -25,11 +26,11 @@
 #include <sctl.hpp>
 #include "csbq/slender_element.hpp"    // for SlenderElemList
 
-// Build quadrature rules on the fly instead of reading the precomputed tables: CSBQ_ADAPTIVE_RING_QUAD for the ring
-// (toroidal) rules, CSBQ_ADAPTIVE_SELF_QUAD for the self-interaction rules along the element. The ring rules are always
-// built on the fly when Real is wider than double.
-#ifndef CSBQ_ADAPTIVE_RING_QUAD
-#define CSBQ_ADAPTIVE_RING_QUAD 0
+// Build quadrature rules at run time instead of reading the precomputed tables: CSBQ_SINH_RING_QUAD for the ring
+// (toroidal) rules, which are then sinh-mapped Gauss-Legendre rules, and CSBQ_ADAPTIVE_SELF_QUAD for the
+// self-interaction rules along the element. The ring rules are always built at run time when Real is wider than double.
+#ifndef CSBQ_SINH_RING_QUAD
+#define CSBQ_SINH_RING_QUAD 0
 #endif
 #ifndef CSBQ_ADAPTIVE_SELF_QUAD
 #define CSBQ_ADAPTIVE_SELF_QUAD 0
@@ -807,10 +808,81 @@ namespace sctl {
     return nds_wts_lst[ORDER];
   }
 
+  /**
+   * Quadrature rule in theta on [-pi, pi] for the integrals over the source loop (a unit circle) of the kernel times the
+   * Fourier modes up to Nmodes-1, with the error below 10^-digits relative to the largest integral, for targets at
+   * distance dist >= dlt from the loop and nearest to the point theta = 0. The kernel has branch points at
+   * theta = +-i*dist (to leading order in dist). On |theta| < h, the map theta = dlt*sinh(t) puts them at height pi/2
+   * above and below the real t-axis, at t = acosh(dist/dlt), for any dist: one Gauss-Legendre panel in t on
+   * [0, asinh(h/dlt)], whose nodes cluster at t = 0, resolves the kernel. On h < |theta| < pi, one Gauss-Legendre
+   * panel in theta resolves the Fourier modes. Nodes ascending and symmetric about 0.
+   *
+   * gauss_legendre(N) gives the N-point Gauss-Legendre rule on [0,1] (a pair of vectors of nodes and weights).
+   */
+  template <class ValueType, class GaussLegendre> static void SinhQuadRule(Vector<ValueType>& nds, Vector<ValueType>& wts, const ValueType dlt, const Integer digits, const Integer Nmodes, const GaussLegendre& gauss_legendre) {
+    const ValueType pi = const_pi<ValueType>();
+    const ValueType h = std::min<ValueType>(pi/8, 15/(ValueType)std::max<Integer>(Nmodes-1,1)); // at most 15 radians of the highest mode on the first panel
+    const ValueType x = h/dlt, T = log<ValueType>(x) + log<ValueType>(1 + sqrt<ValueType>(1 + 1/(x*x))); // asinh(h/dlt), also for h/dlt beyond the square root of the largest number
+    // The node counts are fitted to those measured for the Laplace and Stokes single and double layers and the Stokes
+    // traction against integrals in quadruple precision (Nmodes 4 to 30), and meet the digits for Nmodes 4 to 52 with
+    // dist/dlt in [1,2), for dlt from 2*pi*2^-2 to 2*pi*2^-44 and, in a model of the integrals, down to 2*pi*2^-101.
+    // On the second panel, the kernel needs as many nodes as the Fourier modes for Nmodes = 10.
+    const Integer Nin = (Integer)ceil((double)(digits+3) * std::max<double>(sqrt((double)T), 1.2)) + 2;
+    const Integer Nout = (Integer)ceil(std::max<Integer>(Nmodes-1,9)*(const_pi<double>()-(double)h)/3.8 + 1.2*digits + 5);
+
+    const Long N = Nin + Nout;
+    nds.ReInit(2*N);
+    wts.ReInit(2*N);
+    { // |theta| < h
+      const auto& gl = gauss_legendre(Nin);
+      for (Long i = 0; i < Nin; i++) {
+        const ValueType t = T*gl.first[i], et = exp<ValueType>(t), sinh_t = (et-1/et)/2, cosh_t = (et+1/et)/2;
+        nds[N+i] = dlt*sinh_t;
+        wts[N+i] = dlt*cosh_t*T*gl.second[i];
+      }
+    }
+    { // h < |theta| < pi
+      const auto& gl = gauss_legendre(Nout);
+      for (Long i = 0; i < Nout; i++) {
+        nds[N+Nin+i] = h + (pi-h)*gl.first[i];
+        wts[N+Nin+i] = (pi-h)*gl.second[i];
+      }
+    }
+    for (Long i = 0; i < N; i++) {
+      nds[N-1-i] = -nds[N+i];
+      wts[N-1-i] = wts[N+i];
+    }
+  }
+
+  /**
+   * A ring rule (theta, wts) in the layout of BuildToroidalSpecialQuadRules: cos(theta)-1, sin(theta) and the weights,
+   * padded with zeros to a multiple of VecLen nodes, and the Fourier modes up to Nmodes-1 by mode and node, with
+   * cos(k*theta) in row k*2 and sin(k*theta) in row k*2+1.
+   */
+  template <class RealType> static void PackRingQuadRule(Vector<RealType>& cos_theta, Vector<RealType>& sin_theta, Vector<RealType>& wts, Vector<RealType>& fourier, const Vector<RealType>& theta, const Vector<RealType>& wts0, const Integer Nmodes, const Integer VecLen) {
+    const Long N_ = theta.Dim(), N = ((N_+VecLen-1)/VecLen)*VecLen;
+    cos_theta.ReInit(N); sin_theta.ReInit(N); wts.ReInit(N); fourier.ReInit(Nmodes*2*N);
+    cos_theta.SetZero(); sin_theta.SetZero(); wts.SetZero(); fourier.SetZero();
+    for (Long j = 0; j < N_; j++) {
+      const RealType sin_half = sin<RealType>(theta[j]/2);
+      cos_theta[j] = -2*sin_half*sin_half;
+      sin_theta[j] = sin<RealType>(theta[j]);
+      wts[j] = wts0[j];
+      const std::complex<RealType> exp_itheta(cos_theta[j]+1, sin_theta[j]);
+      std::complex<RealType> exp_iktheta(1,0);
+      for (Long k = 0; k < Nmodes; k++) {
+        fourier[(k*2+0)*N+j] = exp_iktheta.real();
+        fourier[(k*2+1)*N+j] = exp_iktheta.imag();
+        exp_iktheta *= exp_itheta;
+      }
+    }
+  }
+
   template <class RealType, class Kernel, Integer adap> static Vector<Vector<RealType>> BuildToroidalSpecialQuadRules(Integer Nmodes, Integer VecLen) {
     const std::string fname = std::string(CSBQ_QUOTEME(CSBQ_DATA_PATH)) + std::string("/toroidal_quad_rule_m") + std::to_string(Nmodes) + "_" + Kernel::Name();
     constexpr Integer COORD_DIM = 3;
-    constexpr Integer max_adap_depth = 30; // build quadrature rules for points up to 2*pi*0.5^max_adap_depth from source loop
+    constexpr Integer table_depth = 30; // levels of the rules in the files
+    constexpr Integer max_depth = std::max<Integer>(table_depth, TypeTraits<RealType>::SigBits-10); // levels of the rules kept in memory, for targets at dist/r down to 2*pi*2^(10-SigBits), about 6400 rounding errors of r; for closer targets, ToroidalSpecialQuadRule builds the rule at each call
     constexpr Integer crossover_adap_depth = 2;
     constexpr Integer max_digits = 20;
 
@@ -861,30 +933,12 @@ namespace sctl {
     Vector<Vector<ValueType>> data;
     if (!adap) { // read from file
       ReadFile(data, fname);
-    } else { // use dyadically refined panel quadrature rules
-      data.ReInit(max_adap_depth * max_digits);
-      for (Integer idx = 0; idx < max_adap_depth; idx++) {
-        const ValueType dist = 4*const_pi<ValueType>()*pow<ValueType,Long>(0.5,idx);
-        const Integer DyadicRefDepth = std::max<Integer>(1,(Integer)(log(dist/2/const_pi<ValueType>())/log(0.5)+0.5));
-
-        Vector<ValueType> quad_nds, quad_wts;
-        for (Integer digits = 0; digits < max_digits; digits++) {
-          const Integer LegOrder = (Integer)(digits*1.5);
-          DyadicPanelQuadRule(quad_nds, quad_wts, DyadicRefDepth, LegOrder, adap);
-
-          const Long N = quad_nds.Dim();
-          data[idx*max_digits+digits].ReInit(3*N);
-          for (Long i = 0; i < N; i++) {
-            data[idx*max_digits+digits][i*3+0] = cos<ValueType>(2*const_pi<ValueType>()*quad_nds[i]);
-            data[idx*max_digits+digits][i*3+1] = sin<ValueType>(2*const_pi<ValueType>()*quad_nds[i]);
-            data[idx*max_digits+digits][i*3+2] = (2*const_pi<ValueType>()*quad_wts[i]);
-          }
-        }
-      }
+    } else { // the trapezoidal rules below, then the sinh-mapped rules
+      data.ReInit(crossover_adap_depth * max_digits);
     }
-    if (!adap && data.Dim() != max_adap_depth*max_digits) { // If file is not-found then compute quadrature rule and write to file
-      data.ReInit(max_adap_depth * max_digits);
-      for (Integer idx = 0; idx < max_adap_depth; idx++) {
+    if (!adap && data.Dim() != table_depth*max_digits) { // If file is not-found then compute quadrature rule and write to file
+      data.ReInit(table_depth * max_digits);
+      for (Integer idx = 0; idx < table_depth; idx++) {
         Vector<Vector<ValueType>> quad_nds,  quad_wts;
         { // generate special quadrature rule
           Vector<ValueType> nds, wts;
@@ -961,7 +1015,7 @@ namespace sctl {
 
           Vector<ValueType> eps_vec;
           for (Long k = 0; k < max_digits; k++) eps_vec.PushBack(pow<ValueType,Long>(0.1,k));
-          std::cout<<"Level = "<<idx<<" of "<<max_adap_depth<<'\n';
+          std::cout<<"Level = "<<idx<<" of "<<table_depth<<'\n';
           if (1) { // make symmetric quadrature rules
             const Long Nnds = Mintegrands.Dim(0), Nint = Mintegrands.Dim(1);
             #pragma omp parallel for schedule(static)
@@ -1076,7 +1130,7 @@ namespace sctl {
     }
 
     Vector<Vector<RealType>> quad_rule_lst;
-    quad_rule_lst.ReInit(data.Dim()*4);
+    quad_rule_lst.ReInit(max_depth*max_digits*4);
     for (Integer i = 0; i < data.Dim(); i++) {
       const Long Nnds_ = data[i].Dim()/3;
       const Integer Nnds = ((Nnds_+VecLen-1)/VecLen)*VecLen;
@@ -1098,24 +1152,64 @@ namespace sctl {
         }
       }
     }
+    { // the levels past the tables (past the trapezoidal rules for adap): sinh-mapped rules for the targets at the near end of each level, in RealType
+      std::map<Integer, std::pair<Vector<RealType>,Vector<RealType>>> gl_rules;
+      const auto gauss_legendre = [&gl_rules](const Integer N) -> const std::pair<Vector<RealType>,Vector<RealType>>& {
+        auto& gl = gl_rules[N];
+        if (gl.first.Dim() != N) LegQuadRule<RealType>::ComputeNdsWts(&gl.first, &gl.second, N);
+        return gl;
+      };
+      Vector<RealType> theta, wts;
+      for (Integer idx = (adap ? crossover_adap_depth : table_depth); idx < max_depth; idx++) {
+        const RealType dlt = 2*const_pi<RealType>()*pow<RealType,Long>(0.5,idx);
+        for (Integer digits = 0; digits < max_digits; digits++) {
+          const Long i = idx*max_digits+digits;
+          SinhQuadRule(theta, wts, dlt, digits, Nmodes, gauss_legendre);
+          PackRingQuadRule(quad_rule_lst[i*4+0], quad_rule_lst[i*4+1], quad_rule_lst[i*4+2], quad_rule_lst[i*4+3], theta, wts, Nmodes, VecLen);
+        }
+      }
+    }
     return quad_rule_lst;
   }
   template <class RealType, Integer VecLen, Integer ModalUpsample, class Kernel, Integer adap> static bool ToroidalSpecialQuadRule(Matrix<RealType>& Mfourier, Vector<RealType>& nds_cos_theta, Vector<RealType>& nds_sin_theta, Vector<RealType>& wts, const Integer Nmodes, RealType r_R0, Integer digits) {
-    static constexpr Integer max_adap_depth = 30; // build quadrature rules for points up to 2*pi*0.5^max_adap_depth from source loop
+    static constexpr Integer max_depth = std::max<Integer>(30, TypeTraits<RealType>::SigBits-10); // levels of the rules kept in memory (as in BuildToroidalSpecialQuadRules)
     static constexpr Integer crossover_adap_depth = 2;
     static constexpr Integer max_digits = 20;
     if (digits >= max_digits) digits = max_digits-1;
     //SCTL_ASSERT(digits<max_digits);
 
-    Long adap_depth = 0;
-    for (RealType s = r_R0; s<2*const_pi<RealType>(); s*=2) adap_depth++;
-    if (adap_depth >= max_adap_depth) {
+    Long adap_depth = 0; // the level: 2*pi*2^-adap_depth <= r_R0 < 4*pi*2^-adap_depth
+    if (r_R0 > 0) {
+      for (RealType s = r_R0; s<2*const_pi<RealType>(); s*=2) adap_depth++;
+    } else {
       static const int warn_once = []() {
-        SCTL_WARN("Toroidal quadrature evaluation is outside of the range of precomputed quadratures; accuracy may be severely degraded.");
+        SCTL_WARN("Toroidal quadrature evaluation at a target on the source loop, where the integrals are singular.");
         return 0;
       }();
       SCTL_UNUSED(warn_once);
-      adap_depth = max_adap_depth-1;
+      adap_depth = max_depth-1;
+    }
+    if (adap_depth >= max_depth) { // the rule for this distance, in buffers of this thread that hold it until the next call
+      static thread_local std::map<Integer, std::pair<Vector<RealType>,Vector<RealType>>> gl_rules;
+      static thread_local Vector<RealType> theta, wts0, cos_theta, sin_theta, wts1, fourier, fourier_t;
+      const auto gauss_legendre = [](const Integer N) -> const std::pair<Vector<RealType>,Vector<RealType>>& {
+        auto& gl = gl_rules[N];
+        if (gl.first.Dim() != N) LegQuadRule<RealType>::ComputeNdsWts(&gl.first, &gl.second, N);
+        return gl;
+      };
+      SinhQuadRule(theta, wts0, r_R0, digits, Nmodes, gauss_legendre);
+      PackRingQuadRule(cos_theta, sin_theta, wts1, fourier, theta, wts0, Nmodes, VecLen);
+
+      const Long N = wts1.Dim(), K2 = (Nmodes-ModalUpsample)*2;
+      fourier_t.ReInit(N*K2);
+      for (Long j = 0; j < N; j++) {
+        for (Long k = 0; k < K2; k++) fourier_t[j*K2+k] = fourier[k*N+j];
+      }
+      Mfourier.ReInit(N, K2, fourier_t.begin(), false);
+      nds_cos_theta.ReInit(N, cos_theta.begin(), false);
+      nds_sin_theta.ReInit(N, sin_theta.begin(), false);
+      wts.ReInit(N, wts1.begin(), false);
+      return true;
     }
 
     SCTL_ASSERT(Nmodes < 100);
@@ -1167,7 +1261,7 @@ namespace sctl {
     // return whether an adaptive quadrature rule has been used
     return (adap_depth >= crossover_adap_depth);
   }
-  template <Integer digits, Integer ModalUpsample, bool trg_dot_prod, class RealType, class Kernel, Integer adap=(CSBQ_ADAPTIVE_RING_QUAD || sizeof(RealType)>sizeof(double))> static void toroidal_greens_fn_batched(Matrix<RealType>& M, const Tensor<RealType,true,3,1>& x_trg, const Tensor<RealType,true,3,1>& e_trg, const RealType r_trg, const Tensor<RealType,true,3,1>& n_trg, const Matrix<RealType>& x_src, const Matrix<RealType>& dx_src, const Matrix<RealType>& d2x_src, const Matrix<RealType>& r_src, const Matrix<RealType>& dr_src, const Matrix<RealType>& e1_src, const Kernel& ker, const Integer FourierModes) {
+  template <Integer digits, Integer ModalUpsample, bool trg_dot_prod, class RealType, class Kernel, Integer adap=(CSBQ_SINH_RING_QUAD || sizeof(RealType)>sizeof(double))> static void toroidal_greens_fn_batched(Matrix<RealType>& M, const Tensor<RealType,true,3,1>& x_trg, const Tensor<RealType,true,3,1>& e_trg, const RealType r_trg, const Tensor<RealType,true,3,1>& n_trg, const Matrix<RealType>& x_src, const Matrix<RealType>& dx_src, const Matrix<RealType>& d2x_src, const Matrix<RealType>& r_src, const Matrix<RealType>& dr_src, const Matrix<RealType>& e1_src, const Kernel& ker, const Integer FourierModes) {
     static constexpr Integer VecLen = DefaultVecLen<RealType>();
     using VecType = Vec<RealType, VecLen>;
 
@@ -2187,7 +2281,7 @@ namespace sctl {
 
       Matrix<Real> Mfourier;
       Vector<Real> nds_cos, nds_sin, wts;
-      ToroidalSpecialQuadRule<Real,DefaultVecLen<Real>(),ModalUpsample,Kernel,(CSBQ_ADAPTIVE_RING_QUAD || sizeof(Real)>sizeof(double))>(Mfourier, nds_cos, nds_sin, wts, FourierModes+ModalUpsample, (Real)1, 1); // adap: the default of toroidal_greens_fn_batched. TODO: replace by toroidal_greens_fn_batched
+      ToroidalSpecialQuadRule<Real,DefaultVecLen<Real>(),ModalUpsample,Kernel,(CSBQ_SINH_RING_QUAD || sizeof(Real)>sizeof(double))>(Mfourier, nds_cos, nds_sin, wts, FourierModes+ModalUpsample, (Real)1, 1); // adap: the default of toroidal_greens_fn_batched. TODO: replace by toroidal_greens_fn_batched
 
       Vector<Real> quad_nds, quad_wts;
       Matrix<Real> Minterp_quad_nds;
