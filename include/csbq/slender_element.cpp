@@ -1105,7 +1105,6 @@ namespace sctl {
     using Vec3 = Tensor<RealType,true,COORD_DIM,1>;
     static constexpr Integer KDIM0 = Kernel::SrcDim();
     static constexpr Integer KDIM1 = Kernel::TrgDim()/(trg_dot_prod?COORD_DIM:1);
-    static constexpr Integer Nbuff = 10000; // TODO
 
     const Long BatchSize = M.Dim(0);
     SCTL_ASSERT(M.Dim(1) == KDIM0*KDIM1*FourierModes*2);
@@ -1154,7 +1153,6 @@ namespace sctl {
         Vector<RealType> nds_cos_theta, nds_sin_theta, wts;
         ToroidalSpecialQuadRule<RealType,VecLen,ModalUpsample,Kernel,adap>(Mexp_iktheta, nds_cos_theta, nds_sin_theta, wts, FourierModes+ModalUpsample, dist/r, digits);
         const Long Nnds = wts.Dim();
-        SCTL_ASSERT(Nnds < Nbuff);
 
         { // Set M
           const RealType d2x_dot_e1 = e1(0,0)*d2x(0,0) + e1(1,0)*d2x(1,0) + e1(2,0)*d2x(2,0);
@@ -1166,8 +1164,8 @@ namespace sctl {
           const VecType vec_dx[3] = {dx(0,0), dx(1,0), dx(2,0)};
           const VecType vec_dy0[3] = {Xt(0,0)-x(0,0), Xt(1,0)-x(1,0), Xt(2,0)-x(2,0)};
 
-          alignas(sizeof(VecType)) StaticArray<char,KDIM0*KDIM1*Nbuff*sizeof(RealType)> mem_buff;
-          Matrix<RealType> Mker_da(KDIM0*KDIM1, Nnds, (Iterator<RealType>)(Iterator<char>)mem_buff, false);
+          ScratchBuf<RealType> mem_buff(KDIM0*KDIM1*Nnds);
+          Matrix<RealType> Mker_da(KDIM0*KDIM1, Nnds, mem_buff.begin(), false);
           for (Integer j = 0; j < Nnds; j+=VecLen) { // Set Mker_da
             VecType dy[3], n[3], da;
             { // Set dy, n, da
@@ -1897,9 +1895,6 @@ namespace sctl {
       omp_par::scan(node_cnt.begin(), node_dsp.begin(), Nelem);
     }
 
-    StaticArray<Real,6000> static_buff;
-    Vector<Real> buff(6000, static_buff, false);
-
     element_wise_node_cnt = node_cnt;
     const Long Nnodes = (Nelem ? node_dsp[Nelem-1]+node_cnt[Nelem-1] : 0);
     if (X       .Dim() != Nnodes*COORD_DIM) X       .ReInit(Nnodes*COORD_DIM);
@@ -1916,14 +1911,10 @@ namespace sctl {
       const Long FourierOrder = fourier_order[elem_idx];
       SCTL_ASSERT(node_cnt[elem_idx] == ElemOrder*FARFIELD_UPSAMPLE * FourierOrder*FARFIELD_UPSAMPLE);
 
-      Vector<Real> dX_ds, dX_dt;
       const Long Nnds = ElemOrder*FARFIELD_UPSAMPLE*FourierOrder*FARFIELD_UPSAMPLE;
-      if (buff.Dim() < 2*Nnds*COORD_DIM) {
-        buff.ReInit(2*Nnds*COORD_DIM);
-      } else {
-        dX_ds.ReInit(Nnds*COORD_DIM, buff.begin(), false);
-        dX_dt.ReInit(Nnds*COORD_DIM, buff.begin()+Nnds*COORD_DIM, false);
-      }
+      ScratchBuf<Real> dX_buf(2*Nnds*COORD_DIM);
+      Vector<Real> dX_ds(Nnds*COORD_DIM, dX_buf.begin(), false);
+      Vector<Real> dX_dt(Nnds*COORD_DIM, dX_buf.begin()+Nnds*COORD_DIM, false);
 
       const auto& leg_nds = LegendreQuadRule<Real>(ElemOrder*FARFIELD_UPSAMPLE).first;
       const auto& leg_wts = LegendreQuadRule<Real>(ElemOrder*FARFIELD_UPSAMPLE).second;
@@ -2293,9 +2284,8 @@ namespace sctl {
             Real dist_min, s_min, dxds;
             { // Set dist_min, s_min, dxds
               auto get_dist = [&ElemOrder,&radius,&coord,&dx] (const Vec3& x_trg, Real s) -> Real {
-                StaticArray<Real,20> buff;
-                Vector<Real> interp_wts(ElemOrder, buff, false);
-                if (ElemOrder > 20) interp_wts.ReInit(ElemOrder);
+                ScratchBuf<Real> interp_wts_buf(ElemOrder);
+                Vector<Real> interp_wts(ElemOrder, interp_wts_buf.begin(), false);
                 LagrangeInterp<Real>::Interpolate(interp_wts, CenterlineNodes(ElemOrder), Vector<Real>(1,Ptr2Itr<Real>(&s,1),false));
 
                 Real r0 = 0;
@@ -2348,9 +2338,8 @@ namespace sctl {
               };
 
               const auto newton_iter_step = [&ElemOrder,&radius,&dr,&coord,&dx,&d2x](Real& ds, Real& dist2, Real& dyds2, const Real s, const Vec3& x_trg) {
-                StaticArray<Real,20> buff;
-                Vector<Real> interp_wts(ElemOrder, buff, false);
-                if (ElemOrder > 20) interp_wts.ReInit(ElemOrder);
+                ScratchBuf<Real> interp_wts_buf(ElemOrder);
+                Vector<Real> interp_wts(ElemOrder, interp_wts_buf.begin(), false);
                 LagrangeInterp<Real>::Interpolate(interp_wts, CenterlineNodes(ElemOrder), Vector<Real>(1,(Iterator<Real>)Ptr2ConstItr<Real>(&s,1),false));
 
                 Vec3 x0, dx0, d2x0;
@@ -2452,9 +2441,8 @@ namespace sctl {
               //bin_search(s_min, dist_min, x_trg);
 
               { // Set dx_ds;
-                StaticArray<Real,20> buff;
-                Vector<Real> interp_wts(ElemOrder, buff, false);
-                if (ElemOrder > 20) interp_wts.ReInit(ElemOrder);
+                ScratchBuf<Real> interp_wts_buf(ElemOrder);
+                Vector<Real> interp_wts(ElemOrder, interp_wts_buf.begin(), false);
                 LagrangeInterp<Real>::Interpolate(interp_wts, CenterlineNodes(ElemOrder), Vector<Real>(1,Ptr2Itr<Real>(&s_min,1),false));
 
                 Vec3 dxds_vec;
@@ -2492,9 +2480,8 @@ namespace sctl {
             ScratchBuf<Real> s_vec(MaxPanels+1);
             { // Set s_vec, Npanel (7% - 15% of near interaction time)
               const auto get_geom = [&ElemOrder,&radius,&dr,&coord,&dx,&d2x](Vec3& y, Real& dist_xt, Real& dyds, const Real s, const Vec3& x_trg, const Vec3& yy) {
-                StaticArray<Real,20> buff;
-                Vector<Real> interp_wts(ElemOrder, buff, false);
-                if (ElemOrder > 20) interp_wts.ReInit(ElemOrder);
+                ScratchBuf<Real> interp_wts_buf(ElemOrder);
+                Vector<Real> interp_wts(ElemOrder, interp_wts_buf.begin(), false);
                 LagrangeInterp<Real>::Interpolate(interp_wts, CenterlineNodes(ElemOrder), Vector<Real>(1,(Iterator<Real>)Ptr2ConstItr<Real>(&s,1),false));
 
                 Vec3 x0, dx0, d2x0;
@@ -2622,13 +2609,8 @@ namespace sctl {
         Matrix<Real> d2x_src(COORD_DIM, Nq, src_buf.begin()+ 8*Nq, false);
         Matrix<Real> e1_src (COORD_DIM, Nq, src_buf.begin()+11*Nq, false);
         { // Set x_src, x_trg (improve numerical stability)
-          Matrix<Real> x_nodes;
-          StaticArray<Real,30> buff;
-          if (COORD_DIM*ElemOrder <= 30) {
-            x_nodes.ReInit(COORD_DIM,ElemOrder, buff, false);
-          } else {
-            x_nodes.ReInit(COORD_DIM,ElemOrder);
-          }
+          ScratchBuf<Real> x_nodes_buf(COORD_DIM*ElemOrder);
+          Matrix<Real> x_nodes(COORD_DIM, ElemOrder, x_nodes_buf.begin(), false);
           for (Integer k = 0; k < COORD_DIM; k++) {
             for (Long j = 0; j < ElemOrder; j++) {
               x_nodes[k][j] = coord[k*ElemOrder+j] - x_trg(k,0);
@@ -3285,8 +3267,8 @@ namespace sctl {
       { // Set Minterp_quad_nds
         Vector<Real> Vinterp_quad_nds(ElemOrder*Nq, Minterp_quad_nds.begin(), false);
 
-        StaticArray<Real,20> buff0;
-        Vector<Real> cheb_nds0(ElemOrder, (ElemOrder>20?NullIterator<Real>():buff0), (ElemOrder>20));
+        ScratchBuf<Real> cheb_nds0_buf(ElemOrder);
+        Vector<Real> cheb_nds0(ElemOrder, cheb_nds0_buf.begin(), false);
         for (Long j = 0; j < ElemOrder; j++) cheb_nds0[j] = cheb_nds[j] - cheb_nds[i];
         LagrangeInterp<Real>::Interpolate(Vinterp_quad_nds, cheb_nds0, quad_nds);
       }
@@ -3299,13 +3281,8 @@ namespace sctl {
       Matrix<Real> d2x_src(COORD_DIM, Nq, src_buf.begin()+ 8*Nq, false);
       Matrix<Real> e1_src (COORD_DIM, Nq, src_buf.begin()+11*Nq, false);
       { // Set x_src, x_trg (improve numerical stability)
-        Matrix<Real> x_nodes;
-        StaticArray<Real,30> buff;
-        if (COORD_DIM*ElemOrder <= 30) {
-          x_nodes.ReInit(COORD_DIM,ElemOrder, buff, false);
-        } else {
-          x_nodes.ReInit(COORD_DIM,ElemOrder);
-        }
+        ScratchBuf<Real> x_nodes_buf(COORD_DIM*ElemOrder);
+        Matrix<Real> x_nodes(COORD_DIM, ElemOrder, x_nodes_buf.begin(), false);
         for (Integer k = 0; k < COORD_DIM; k++) {
           for (Long j = 0; j < ElemOrder; j++) {
             x_nodes[k][j] = coord[k*ElemOrder+j] - x_trg(k,0);
