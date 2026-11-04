@@ -19,11 +19,7 @@
  * near-interaction (targets at 1e-6 to 4 radii from the surface, on both
  * sides), and how it follows the accuracy tolerance.
  *
- * The errors must be within ErrFactor times the accuracy tolerance, except at
- * targets within 1e-3 radii of the surface: there the near-interaction is less
- * accurate than the tolerance (with Laplace, about 5e-9 at 1e-3 radii and 4e-8
- * at 1e-6 radii for a tolerance of 1e-10), and the checks only bound the error
- * at its present level.
+ * The errors must be within ErrFactor times the accuracy tolerance.
  *
  * The program returns a non-zero exit status if a check fails. To compile and
  * run all the unit tests, start in the project root directory and run:
@@ -79,19 +75,16 @@ Vector<double> PanelBreakpoints() {
 
 /**
  * Target points off the surface, in groups (for reporting errors), each point
- * marked inside or outside the body. Each group has an error threshold
- * relative to the accuracy tolerance.
+ * marked inside or outside the body.
  */
 struct Targets {
   Vector<double> X; // coordinates (AoS order)
   Vector<Long> inside; // 1 for a point inside the body
   Vector<std::string> grp_name;
-  Vector<double> grp_err_factor; // error threshold relative to the accuracy tolerance
   Vector<Long> grp_dsp{0}; // first point of each group, and the number of points at the end
 
-  void AddGroup(const std::string& name, const double err_factor = ErrFactor) {
+  void AddGroup(const std::string& name) {
     grp_name.PushBack(name);
-    grp_err_factor.PushBack(err_factor);
     grp_dsp.PushBack(grp_dsp[grp_dsp.Dim()-1]);
   }
   void Add(const Vector<double>& X_, const bool inside_) {
@@ -121,9 +114,9 @@ Targets BuildTargets(const SlenderElemList<double>& elem_lst) {
 
   trg.AddGroup("near, d = 1e-1 r");
   add_near(1e-1, true);
-  trg.AddGroup("near, d = 1e-3 r", 200); // less accurate than the tolerance (see the top of the file)
+  trg.AddGroup("near, d = 1e-3 r");
   add_near(1e-3, true);
-  trg.AddGroup("near, d = 1e-6 r", 1000);
+  trg.AddGroup("near, d = 1e-6 r");
   add_near(1e-6, true);
   trg.AddGroup("d = r and 4 r, outside");
   add_near(1, false);
@@ -250,8 +243,7 @@ void CheckIdentities(const std::string& ker_name, const Matrix<double>& err, con
   for (Integer l = 0; l < 3; l++) {
     for (Long g = 0; g < err.Dim(1); g++) {
       const std::string grp_name = (g ? trg.grp_name[g-1] : std::string("on surface"));
-      const double err_factor = (g ? trg.grp_err_factor[g-1] : ErrFactor);
-      Check(ker_name + ", " + identity_name[l] + ": " + grp_name, err[l][g], err_factor*tol);
+      Check(ker_name + ", " + identity_name[l] + ": " + grp_name, err[l][g], ErrFactor*tol);
     }
   }
 }
@@ -277,16 +269,12 @@ int main(int argc, char** argv) {
     const Matrix<double> err_stokes = IdentityErrors<Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(elem_lst, trg, X0_out, X0_in, Vector<double>{0.6, -0.8, 1.2}, tol);
     CheckIdentities("Stokes", err_stokes, trg, tol);
 
-    for (const double tol_ : {1e-4, 1e-6, 1e-8}) { // Laplace: the error follows the accuracy tolerance (on the surface, and at targets with the default threshold)
+    for (const double tol_ : {1e-4, 1e-6, 1e-8}) { // Laplace: the error follows the accuracy tolerance
       const Matrix<double> err = IdentityErrors<Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(elem_lst, trg, X0_out, X0_in, Vector<double>{1.0}, tol_);
       double max_err = 0;
-      for (Long l = 0; l < err.Dim(0); l++) {
-        for (Long g = 0; g < err.Dim(1); g++) {
-          if (g == 0 || trg.grp_err_factor[g-1] == ErrFactor) max_err = std::max(max_err, err[l][g]);
-        }
-      }
+      for (const auto e : err) max_err = std::max(max_err, e);
       std::stringstream ss;
-      ss<<"Laplace, tolerance "<<std::scientific<<std::setprecision(0)<<tol_<<": on surface and d >= 1e-1 r";
+      ss<<"Laplace, tolerance "<<std::scientific<<std::setprecision(0)<<tol_<<": all targets";
       Check(ss.str(), max_err, ErrFactor*tol_);
     }
 
