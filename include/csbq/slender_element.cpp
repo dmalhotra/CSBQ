@@ -1764,6 +1764,23 @@ namespace sctl {
       InterpQuadRule<ValueType>::Build(quad_nds, quad_wts,  Mintegrands, nds, wts, eps_vec, Vector<Long>(), range0, range1);
       SCTL_ASSERT(quad_nds.Dim() == max_digits);
       SCTL_ASSERT(quad_wts.Dim() == max_digits);
+      { // The rule for d digits: the one with the fewest nodes that integrates the training integrands to 10^-d,
+        // relative to the largest integral at each length, and whose weights cancel little (sum |w| <= 2 |sum w|).
+        // These rules interpolate, with as many nodes as integrands, and their weights can be negative and large.
+        const Long Nint = Mintegrands.Dim(1), B = Nint/Nlen;
+        ScratchBuf<ValueType> I_ref_buf(Nint), err_buf(max_digits), cancel_buf(max_digits);
+        Vector<ValueType> I_ref(Nint, I_ref_buf.begin(), false), err(max_digits, err_buf.begin(), false), cancel(max_digits, cancel_buf.begin(), false);
+        detail_quad_tables::QuadRuleIntegrals(I_ref, Mintegrands, [](const Long q) { return q; }, wts);
+        detail_quad_tables::QuadRuleErrors(err, cancel, quad_nds, quad_wts, Mintegrands, nds, I_ref, Nlen, [B](const Long j) { return j/B; });
+        Vector<Vector<ValueType>> nds_sel(max_digits), wts_sel(max_digits);
+        for (Integer d = 0; d < max_digits; d++) {
+          const Integer best = detail_quad_tables::FewestNodesQuadRule(quad_nds, err, cancel, eps_vec[d]);
+          nds_sel[d] = quad_nds[best];
+          wts_sel[d] = quad_wts[best];
+        }
+        quad_nds = nds_sel;
+        quad_wts = wts_sel;
+      }
       for (Long k = 0; k < max_digits; k++) {
         for (Long i = 0; i < quad_nds[k].Dim(); i++) {
           const ValueType qx0 = quad_nds[k][i];
