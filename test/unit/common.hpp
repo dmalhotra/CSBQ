@@ -77,17 +77,21 @@ namespace unit_test {
   }
 
   /**
-   * Exit with an error if a precomputed quadrature table for the kernel, the
-   * element order or the Fourier order is missing from CSBQ_DATA_PATH: CSBQ
-   * would build it on the fly in quadruple precision, which is very slow.
+   * Exit with an error if a precomputed quadrature table for the kernel (with
+   * the target normals if trg_dot_prod), the element order or the Fourier
+   * order is missing from CSBQ_DATA_PATH: CSBQ would build it on the fly in
+   * quadruple precision, which is very slow. The tables are those that CSBQ
+   * reads for the kernel, which for some kernels are those of another kernel
+   * with the same singularity.
    */
-  template <class Kernel> void RequireQuadTables(const Long FourierOrder, const Long ElemOrder = 10) {
+  template <class Kernel, bool trg_dot_prod = false> void RequireQuadTables(const Long FourierOrder, const Long ElemOrder = 10) {
+    using SelfKernel = detail_quad_tables::SelfTableKernel<Kernel,trg_dot_prod>;
     const std::string path = CSBQ_QUOTEME(CSBQ_DATA_PATH);
     const Integer table_idx = detail_quad_tables::SelfTableIdx(FourierOrder/2+1);
     const std::string fname_lst[3] = {
       path + "/log_quad",
-      (table_idx < detail_quad_tables::SelfTableCount ? detail_quad_tables::SelfTableFile<Kernel,false>(ElemOrder, detail_quad_tables::SelfTableModes[table_idx]) : std::string()), // none for the adaptive self-interaction rule
-      path + "/toroidal_quad_rule_m" + std::to_string(FourierOrder/2+2) + "_" + Kernel::Name() // FourierModes + ModalUpsample = (FourierOrder/2+1) + 1
+      (table_idx < detail_quad_tables::SelfTableCount ? detail_quad_tables::SelfTableFile<typename SelfKernel::type,SelfKernel::dot_prod>(ElemOrder, detail_quad_tables::SelfTableModes[table_idx]) : std::string()), // none for the adaptive self-interaction rule
+      detail_quad_tables::RingTableFile<detail_quad_tables::QuadTableKernel<Kernel>>(FourierOrder/2+2) // FourierModes + ModalUpsample = (FourierOrder/2+1) + 1
     };
     for (const auto& fname : fname_lst) {
       if (!fname.empty() && !std::ifstream(fname).good()) {
