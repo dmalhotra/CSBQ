@@ -3009,7 +3009,7 @@ namespace sctl {
       Vector<Real> coord0, radius0;
       Vector<Long> cheb_order0, fourier_order0;
       for (Long k = idx0; k < idx1; k++) { // Init elem_lst0
-      const Integer ElemOrder = 8, FourierOrder = 14;
+        const Integer ElemOrder = 10, FourierOrder = 14; // element order 10: the order of the precomputed quadratures
         const auto& nds = CenterlineNodes(ElemOrder);
         for (Long i = 0; i < nds.Dim(); i++) {
           Real x, y, z, r;
@@ -3069,14 +3069,14 @@ namespace sctl {
       kernel_grad.Eval(dU, X, X0, Xn0, F0);
 
       Fd = Uref;
-      { // Set Fs <-- -dot_prod(dU, Xn)
+      { // Set Fs <-- dot_prod(dU, Xn)
         Fs.ReInit(X.Dim()/COORD_DIM);
         for (Long i = 0; i < Fs.Dim(); i++) {
           Real dU_dot_Xn = 0;
           for (Long k = 0; k < COORD_DIM; k++) {
             dU_dot_Xn += dU[i*COORD_DIM+k] * Xn[i*COORD_DIM+k];
           }
-          Fs[i] = -dU_dot_Xn;
+          Fs[i] = dU_dot_Xn;
         }
       }
     }
