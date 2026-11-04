@@ -1882,7 +1882,9 @@ namespace sctl {
         }();
         SCTL_UNUSED(warn_once);
       }
-      const Integer RefLevels = (Integer)(log<Real>(elem_length/elem_radius)/log<Real>(2)-1);
+      // the log-singular rule extends less than r/8 to each side of the target (inside the distance 2r of the
+      // singularities of the ring-integrated kernel) and at most 1/16 of the element (short enough to resolve the density)
+      const Integer RefLevels = std::max<Integer>(4, (Integer)(log<Real>(elem_length/elem_radius)/log<Real>(2)+4));
       const auto& cheb_nds = SlenderElemList<Real>::CenterlineNodes(ElemOrder);
       const Real s_trg = cheb_nds[trg_node_idx];
       DyadicQuad_s(nds, wts, LegQuadOrder(digits), LogSingularQuadOrder(digits), s_trg, RefLevels, false);
