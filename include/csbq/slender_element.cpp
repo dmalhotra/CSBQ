@@ -2328,9 +2328,10 @@ namespace sctl {
       const auto& leg_wts = LegendreQuadRule<Real>(ElemOrder*FARFIELD_UPSAMPLE).second;
       GetGeom(&X_, &Xn_, &wts_, &dX_ds, &dX_dt, leg_nds, sin_theta<Real>(FourierOrder*FARFIELD_UPSAMPLE), cos_theta<Real>(FourierOrder*FARFIELD_UPSAMPLE), elem_idx);
 
+      const Real far_tol = tol/10;
       ScratchBuf<Real> dist_far_gauss(ElemOrder*FARFIELD_UPSAMPLE);
       for (Long i = 0; i < ElemOrder*FARFIELD_UPSAMPLE; i++) { // Set dist_far_gauss
-        const Real rho=pow<Real>((64/(15*tol)), (1/(Real)(2*ElemOrder*FARFIELD_UPSAMPLE)));
+        const Real rho=pow<Real>((64/(15*far_tol)), (1/(Real)(2*ElemOrder*FARFIELD_UPSAMPLE)));
         const Real a = (rho-1/rho)/4;
         const Real b = (rho+1/rho)/4;
         const Real c = 0.5;
@@ -2339,7 +2340,7 @@ namespace sctl {
         const Real cos_t = b * (leg_nds[i]-0.5) / (c*c);
         if (fabs(cos_t) <= 1) dist_far_gauss[i] = a * sqrt<Real>(1 + ((a*a)/(b*b)-1) * cos_t*cos_t);
       }
-      const Real dist_far_trapezoidal = (pow<Real>(4*const_pi<Real>()/tol+1, 1/(Real)(FourierOrder*FARFIELD_UPSAMPLE)) - 1); // from theorem 2.2 in doi:10.1137/130932132
+      const Real dist_far_trapezoidal = (pow<Real>(4*const_pi<Real>()/far_tol+1, 1/(Real)(FourierOrder*FARFIELD_UPSAMPLE)) - 1); // from theorem 2.2 in doi:10.1137/130932132
 
       const Real theta_quad_wt = 2*const_pi<Real>()/(FourierOrder*FARFIELD_UPSAMPLE);
       for (Long i = 0; i < ElemOrder*FARFIELD_UPSAMPLE; i++) { // Set wts *= leg_wts * theta_quad_wt
@@ -2559,7 +2560,7 @@ namespace sctl {
 
     constexpr double rho = (double)2.5;
     //const Integer digits = (Integer)(log(tol)/log(0.1)+0.5);
-    static const Integer LegQuadOrder = (Integer)ceil(-log(((15.0*(rho*rho-1))/64.0)*(double)pow<digits,Real>((Real)0.1))/log(rho)*0.5+1);
+    static const Integer LegQuadOrder = (Integer)ceil(-log(((15.0*(rho*rho-1))/64.0)*(double)pow<digits+2,Real>((Real)0.1))/log(rho)*0.5+1);
 
     const Integer ElemOrder = cheb_order[elem_idx];
     const Integer FourierOrder = fourier_order[elem_idx];
