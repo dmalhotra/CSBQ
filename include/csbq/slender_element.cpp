@@ -26,11 +26,15 @@
 #include "csbq/slender_element.hpp"    // for SlenderElemList
 
 // Build quadrature rules at run time instead of reading the precomputed tables: CSBQ_SINH_RING_QUAD for the ring
-// (toroidal) rules. The ring rules are trapezoidal for dist/r >= pi; closer, they come from the tables down to dist/r =
-// 2*pi*2^-29 and are sinh-mapped Gauss-Legendre rules built at run time below that. With CSBQ_SINH_RING_QUAD, or when
-// Real is wider than double, they are sinh-mapped rules built at run time at every dist/r < pi.
+// (toroidal) rules and CSBQ_ADAPTIVE_SELF_QUAD for the self-interaction rules along the element. The ring rules are
+// trapezoidal for dist/r >= pi; closer, they come from the tables down to dist/r = 2*pi*2^-29 and are sinh-mapped
+// Gauss-Legendre rules built at run time below that. With CSBQ_SINH_RING_QUAD, or when Real is wider than double, they
+// are sinh-mapped rules built at run time at every dist/r < pi.
 #ifndef CSBQ_SINH_RING_QUAD
 #define CSBQ_SINH_RING_QUAD 0
+#endif
+#ifndef CSBQ_ADAPTIVE_SELF_QUAD
+#define CSBQ_ADAPTIVE_SELF_QUAD 0
 #endif
 
 namespace sctl {
@@ -1774,7 +1778,7 @@ namespace sctl {
     }
     return nds_wts;
   }
-  template <Integer ModalUpsample, class Real, class Kernel, bool trg_dot_prod, bool adap_quad=false> static void SpecialQuadRule(Vector<Real>& nds, Vector<Real>& wts, const Integer ElemOrder, const Integer trg_node_idx, const Real elem_radius, const Real elem_length, const Integer digits) {
+  template <Integer ModalUpsample, class Real, class Kernel, bool trg_dot_prod, bool adap_quad=CSBQ_ADAPTIVE_SELF_QUAD> static void SpecialQuadRule(Vector<Real>& nds, Vector<Real>& wts, const Integer ElemOrder, const Integer trg_node_idx, const Real elem_radius, const Real elem_length, const Integer digits) {
     static constexpr Integer max_adap_depth = 30+7; // TODO
     constexpr Integer MaxFourierModes = 8; // TODO
     constexpr Integer MaxElemOrder = 100;
