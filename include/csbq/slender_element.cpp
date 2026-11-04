@@ -825,22 +825,26 @@ namespace sctl {
 
     /**
      * For each rule (quad_nds[e], quad_wts[e]), whose nodes are among nds: its error err[e] in the integrals of the
-     * columns of M, whose rows are the integrands at the nodes nds, and the cancellation of its weights,
-     * cancel[e] = sum |w| / |sum w|. The error is the largest, over the columns j, of the error in the integral of
-     * column j relative to the largest |I_ref[k]| over the columns k of the group col_grp(j), with I_ref the reference
-     * integrals of the columns and Ngrp groups.
+     * densities whose integrands are the columns of M (whose rows are the integrands at the nodes nds), and the
+     * cancellation of its weights, cancel[e] = sum |w| / |sum w|. Column j is the integrand of density col_dens(j), of the
+     * Ndens densities, with coefficient col_wt(j), and density i is in group dens_grp(i), of Ngrp groups. The error of a
+     * density is the sum over its columns j of col_wt(j) times the error in the integral of column j (the error for the
+     * worst signs of the coefficients); err[e] is the largest, relative to the largest |sum_j col_wt(j) I_ref[j]| over the
+     * densities of its group, with I_ref the reference integrals of the columns.
      */
-    template <class ValueType, class ColGrp> static void QuadRuleErrors(Vector<ValueType>& err, Vector<ValueType>& cancel, const Vector<Vector<ValueType>>& quad_nds, const Vector<Vector<ValueType>>& quad_wts, const Matrix<ValueType>& M, const Vector<ValueType>& nds, const Vector<ValueType>& I_ref, const Long Ngrp, const ColGrp& col_grp) {
+    template <class ValueType, class ColWt, class ColDens, class DensGrp> static void QuadRuleErrors(Vector<ValueType>& err, Vector<ValueType>& cancel, const Vector<Vector<ValueType>>& quad_nds, const Vector<Vector<ValueType>>& quad_wts, const Matrix<ValueType>& M, const Vector<ValueType>& nds, const Vector<ValueType>& I_ref, const ColWt& col_wt, const Long Ndens, const ColDens& col_dens, const Long Ngrp, const DensGrp& dens_grp) {
       const Long N = nds.Dim(), Nint = M.Dim(1);
       const Integer Nrules = quad_nds.Dim();
       ScratchBuf<std::pair<ValueType,Long>> sorted_nds(N); // (nds[i], i) sorted, to find the rows of the nodes of a rule
       for (Long i = 0; i < N; i++) sorted_nds[i] = std::make_pair(nds[i], i);
       std::sort(sorted_nds.begin(), sorted_nds.end());
 
-      ScratchBuf<ValueType> scale(Ngrp), I_buf(Nint);
+      ScratchBuf<ValueType> dens_sum(Ndens), scale(Ngrp), I_buf(Nint);
       Vector<ValueType> I(Nint, I_buf.begin(), false);
+      std::fill(dens_sum.begin(), dens_sum.end(), (ValueType)0);
+      for (Long j = 0; j < Nint; j++) dens_sum[col_dens(j)] += col_wt(j) * I_ref[j];
       std::fill(scale.begin(), scale.end(), (ValueType)0);
-      for (Long j = 0; j < Nint; j++) scale[col_grp(j)] = std::max<ValueType>(scale[col_grp(j)], fabs(I_ref[j]));
+      for (Long i = 0; i < Ndens; i++) scale[dens_grp(i)] = std::max<ValueType>(scale[dens_grp(i)], fabs(dens_sum[i]));
 
       if (err.Dim() != Nrules) err.ReInit(Nrules);
       if (cancel.Dim() != Nrules) cancel.ReInit(Nrules);
@@ -848,8 +852,10 @@ namespace sctl {
         ScratchBuf<Long> rows(quad_nds[e].Dim());
         for (Long q = 0; q < rows.size(); q++) rows[q] = std::lower_bound(sorted_nds.begin(), sorted_nds.end(), std::make_pair(quad_nds[e][q], (Long)0))->second;
         QuadRuleIntegrals(I, M, [&rows](const Long q) { return rows[q]; }, quad_wts[e]);
+        std::fill(dens_sum.begin(), dens_sum.end(), (ValueType)0);
+        for (Long j = 0; j < Nint; j++) dens_sum[col_dens(j)] += col_wt(j) * fabs(I[j]-I_ref[j]);
         err[e] = 0;
-        for (Long j = 0; j < Nint; j++) err[e] = std::max<ValueType>(err[e], fabs(I[j]-I_ref[j]) / scale[col_grp(j)]);
+        for (Long i = 0; i < Ndens; i++) err[e] = std::max<ValueType>(err[e], dens_sum[i] / scale[dens_grp(i)]);
         ValueType sum = 0;
         ValueType sum_abs = 0;
         for (const auto w : quad_wts[e]) {
@@ -877,6 +883,27 @@ namespace sctl {
         }
       }
       return best;
+    }
+
+    static constexpr Integer SelfTableModes[] = {9, 17, 33, 65}; // the Fourier modes of the self-interaction tables
+    static constexpr Integer SelfTableCount = sizeof(SelfTableModes)/sizeof(SelfTableModes[0]);
+
+    /**
+     * The index in SelfTableModes of the self-interaction table for elements with FourierModes Fourier modes: the table
+     * with the fewest Fourier modes that has at least FourierModes, or SelfTableCount if none has.
+     */
+    static constexpr Integer SelfTableIdx(const Integer FourierModes) {
+      Integer idx = 0;
+      while (idx < SelfTableCount && SelfTableModes[idx] < FourierModes) idx++;
+      return idx;
+    }
+
+    /**
+     * The file of the self-interaction table of Kernel for elements of order ElemOrder, trained on TableModes Fourier
+     * modes, with the target normals if trg_dot_prod.
+     */
+    template <class Kernel, bool trg_dot_prod> static std::string SelfTableFile(const Integer ElemOrder, const Integer TableModes) {
+      return std::string(CSBQ_QUOTEME(CSBQ_DATA_PATH)) + "/special_quad_q" + std::to_string(ElemOrder) + "_m" + std::to_string(TableModes) + "_" + Kernel::Name() + (trg_dot_prod ? "_dotXn" : "");
     }
   }
 
@@ -1133,7 +1160,7 @@ namespace sctl {
               ScratchBuf<ValueType> I_ref_buf(Nint), err_buf(Nrules), cancel_buf(Nrules);
               Vector<ValueType> I_ref(Nint, I_ref_buf.begin(), false), err(Nrules, err_buf.begin(), false), cancel(Nrules, cancel_buf.begin(), false);
               detail_quad_tables::QuadRuleIntegrals(I_ref, Mintegrands_, [](const Long q) { return q; }, wts_);
-              detail_quad_tables::QuadRuleErrors(err, cancel, quad_nds_, quad_wts_, Mintegrands_, nds_, I_ref, Ntrg, [KDIM1,Ntrg](const Long j) { return (j/KDIM1)%Ntrg; });
+              detail_quad_tables::QuadRuleErrors(err, cancel, quad_nds_, quad_wts_, Mintegrands_, nds_, I_ref, [](const Long) { return (ValueType)1; }, Nint, [](const Long j) { return j; }, Ntrg, [KDIM1,Ntrg](const Long i) { return (i/KDIM1)%Ntrg; });
               Vector<Vector<ValueType>> nds_sel(max_digits), wts_sel(max_digits);
               for (Integer d = 0; d < max_digits; d++) {
                 const Integer best = detail_quad_tables::FewestNodesQuadRule(quad_nds_, err, cancel, eps_vec[d]);
@@ -1675,7 +1702,7 @@ namespace sctl {
     // the density, and less than r/128 at elem_length (r/90 at the longest length of the bin), well inside the distance
     // 2r of the singularities of the ring-integrated kernel.
     const Integer adap_depth = std::max<Integer>(8, (Integer)(log<ValueType>(elem_length)/log<ValueType>(2)+8));
-    const ValueType eps_buffer = std::min<ValueType>(3e-2/elem_length, 3e-4); // distance of closest node points to s_trg
+    const ValueType eps_buffer = 1/(std::max<Integer>(FourierModes-1,32)*elem_length + 1000); // distance of closest node points to s_trg
     const ValueType eps = 8*machine_eps<ValueType>();
 
     Kernel ker;
@@ -1757,29 +1784,125 @@ namespace sctl {
     Vector<Vector<ValueType>> nds_wts(max_digits*2);
     { // Set nds_wts
       Vector<ValueType> eps_vec;
-      Vector<Vector<ValueType>> quad_nds, quad_wts;
+      Vector<Vector<ValueType>> quad_nds(max_digits), quad_wts(max_digits);
       for (Long k = 0; k < max_digits; k++) eps_vec.PushBack(pow<ValueType,Long>(0.1,k));
       ValueType range0 = s_trg>=0.5 ? 0 : s_trg+eps_buffer;
       ValueType range1 = s_trg>=0.5 ? s_trg-eps_buffer : 1;
-      InterpQuadRule<ValueType>::Build(quad_nds, quad_wts,  Mintegrands, nds, wts, eps_vec, Vector<Long>(), range0, range1);
-      SCTL_ASSERT(quad_nds.Dim() == max_digits);
-      SCTL_ASSERT(quad_wts.Dim() == max_digits);
-      { // The rule for d digits: the one with the fewest nodes that integrates the training integrands to 10^-d,
-        // relative to the largest integral at each length, and whose weights cancel little (sum |w| <= 2 |sum w|).
-        // These rules interpolate, with as many nodes as integrands, and their weights can be negative and large.
-        const Long Nint = Mintegrands.Dim(1), B = Nint/Nlen;
-        ScratchBuf<ValueType> I_ref_buf(Nint), err_buf(max_digits), cancel_buf(max_digits);
-        Vector<ValueType> I_ref(Nint, I_ref_buf.begin(), false), err(max_digits, err_buf.begin(), false), cancel(max_digits, cancel_buf.begin(), false);
-        detail_quad_tables::QuadRuleIntegrals(I_ref, Mintegrands, [](const Long q) { return q; }, wts);
-        detail_quad_tables::QuadRuleErrors(err, cancel, quad_nds, quad_wts, Mintegrands, nds, I_ref, Nlen, [B](const Long j) { return j/B; });
-        Vector<Vector<ValueType>> nds_sel(max_digits), wts_sel(max_digits);
-        for (Integer d = 0; d < max_digits; d++) {
-          const Integer best = detail_quad_tables::FewestNodesQuadRule(quad_nds, err, cancel, eps_vec[d]);
-          nds_sel[d] = quad_nds[best];
-          wts_sel[d] = quad_wts[best];
+
+      // The rule for d digits is trained on the integrands of Fourier mode m weighted by 10^(-d m/(FourierModes-1)), the
+      // Fourier coefficients of a density resolved to 10^-d at its highest mode.
+      const Long N = nds.Dim(), Nint = Mintegrands.Dim(1), B = Nint/Nlen; // columns per length: Ncheb x KDIM0*KDIM1 x FourierModes x {cos, sin}
+      SCTL_ASSERT(B*Nlen == Nint && B%(2*FourierModes) == 0);
+      ScratchBuf<Integer> col_mode(Nint);
+      for (Long j = 0; j < Nint; j++) col_mode[j] = (Integer)(((j % B) % (2*FourierModes)) / 2);
+      auto mode_wt = [FourierModes](const Integer d, const Integer m) {
+        return (FourierModes > 1 ? pow<ValueType>((ValueType)10, -(ValueType)(d*m)/(FourierModes-1)) : (ValueType)1);
+      };
+
+      // InterpQuadRule builds a rule from the span of the rows of its integrands (one row per node), so the integrands of
+      // each mode m are first reduced to Mmode[m] = Mintegrands_m Q^T, where the rows of Q are an orthonormal basis of the
+      // rows of diag(sqrt(wts)) Mintegrands_m up to rank_tol, and the rules for each d are built from the weighted Mmode.
+      Vector<Matrix<ValueType>> Mmode(FourierModes);
+      { // Set Mmode
+        const ValueType rank_tol = std::max<ValueType>(pow<ValueType,Long>(0.1, max_digits+6), 64*machine_eps<ValueType>());
+        ScratchBuf<ValueType> sqrt_wts(N);
+        for (Long i = 0; i < N; i++) sqrt_wts[i] = sqrt<ValueType>(wts[i]);
+        for (Integer m = 0; m < FourierModes; m++) {
+          const Long Nc = Nint/FourierModes;
+          ScratchBuf<Long> cols(Nc);
+          { // Set cols
+            Long k = 0;
+            for (Long j = 0; j < Nint; j++) if (col_mode[j] == m) cols[k++] = j;
+            SCTL_ASSERT(k == Nc);
+          }
+
+          ScratchBuf<ValueType> R_buf(N*Nc), Q_buf(std::min(N, Nc)*Nc);
+          Matrix<ValueType> R(N, Nc, R_buf.begin(), false), Q(std::min(N, Nc), Nc, Q_buf.begin(), false); // R: the rows of diag(sqrt(wts)) Mintegrands_m, less their projections on the rows of Q
+          #pragma omp parallel for schedule(static)
+          for (Long i = 0; i < N; i++) {
+            for (Long k = 0; k < Nc; k++) R[i][k] = sqrt_wts[i] * Mintegrands[i][cols[k]];
+          }
+          ScratchBuf<ValueType> row_norm(N);
+          Long rank = 0;
+          ValueType norm0 = 0;
+          while (rank < Q.Dim(0)) { // Gram-Schmidt with row pivoting, each new row orthogonalized twice
+            #pragma omp parallel for schedule(static)
+            for (Long i = 0; i < N; i++) {
+              ValueType sum = 0;
+              for (Long k = 0; k < Nc; k++) sum += R[i][k] * R[i][k];
+              row_norm[i] = sqrt<ValueType>(sum);
+            }
+            Long p = 0;
+            for (Long i = 1; i < N; i++) if (row_norm[i] > row_norm[p]) p = i;
+            if (rank == 0) norm0 = row_norm[p];
+            if (row_norm[p] <= rank_tol * norm0 || row_norm[p] == 0) break;
+
+            for (Long k = 0; k < Nc; k++) Q[rank][k] = R[p][k];
+            for (Long l = 0; l < rank; l++) {
+              ValueType dot = 0;
+              for (Long k = 0; k < Nc; k++) dot += Q[rank][k] * Q[l][k];
+              for (Long k = 0; k < Nc; k++) Q[rank][k] -= dot * Q[l][k];
+            }
+            ValueType norm = 0;
+            for (Long k = 0; k < Nc; k++) norm += Q[rank][k] * Q[rank][k];
+            norm = 1/sqrt<ValueType>(norm);
+            for (Long k = 0; k < Nc; k++) Q[rank][k] *= norm;
+
+            #pragma omp parallel for schedule(static)
+            for (Long i = 0; i < N; i++) {
+              ValueType dot = 0;
+              for (Long k = 0; k < Nc; k++) dot += R[i][k] * Q[rank][k];
+              for (Long k = 0; k < Nc; k++) R[i][k] -= dot * Q[rank][k];
+            }
+            rank++;
+          }
+
+          Mmode[m].ReInit(N, rank);
+          #pragma omp parallel for schedule(static)
+          for (Long i = 0; i < N; i++) {
+            for (Long l = 0; l < rank; l++) {
+              ValueType sum = 0;
+              for (Long k = 0; k < Nc; k++) sum += Mintegrands[i][cols[k]] * Q[l][k];
+              Mmode[m][i][l] = sum;
+            }
+          }
         }
-        quad_nds = nds_sel;
-        quad_wts = wts_sel;
+      }
+
+      { // The rule for d digits: the one with the fewest nodes that integrates the densities with these coefficients to
+        // 10^-d, and whose weights cancel little (sum |w| <= 2 |sum w|). A density has the integrands of one length,
+        // basis function, kernel component and cos or sin with all the modes; its error is the sum over the modes, relative
+        // to the largest density integral at its length. These rules interpolate, with as many nodes as integrands, and
+        // their weights can be negative and large.
+        ScratchBuf<Long> mode_cols(FourierModes), mode_dsp(FourierModes); // the columns of each mode in Mw, and the first of them
+        for (Integer m = 0; m < FourierModes; m++) mode_cols[m] = Mmode[m].Dim(1);
+        omp_par::scan(mode_cols.begin(), mode_dsp.begin(), FourierModes, (Long)0);
+        const Long Ncols = mode_dsp[FourierModes-1] + mode_cols[FourierModes-1];
+
+        ScratchBuf<ValueType> I_ref_buf(Nint), mode_wts(FourierModes), err_buf(max_digits), cancel_buf(max_digits), Mw_buf(N*Ncols);
+        Vector<ValueType> I_ref(Nint, I_ref_buf.begin(), false), err(max_digits, err_buf.begin(), false), cancel(max_digits, cancel_buf.begin(), false);
+        Matrix<ValueType> Mw(N, Ncols, Mw_buf.begin(), false);
+        detail_quad_tables::QuadRuleIntegrals(I_ref, Mintegrands, [](const Long q) { return q; }, wts);
+        for (Integer d = 0; d < max_digits; d++) {
+          for (Integer m = 0; m < FourierModes; m++) mode_wts[m] = mode_wt(d, m);
+
+          Vector<Vector<ValueType>> nds_e, wts_e; // the rule for each accuracy eps_vec[e]
+          { // Set nds_e, wts_e
+            for (Integer m = 0; m < FourierModes; m++) {
+              for (Long i = 0; i < N; i++) {
+                for (Long l = 0; l < mode_cols[m]; l++) Mw[i][mode_dsp[m]+l] = mode_wts[m] * Mmode[m][i][l];
+              }
+            }
+            InterpQuadRule<ValueType>::Build(nds_e, wts_e, Mw, nds, wts, eps_vec, Vector<Long>(), range0, range1);
+            SCTL_ASSERT(nds_e.Dim() == max_digits);
+            SCTL_ASSERT(wts_e.Dim() == max_digits);
+          }
+
+          detail_quad_tables::QuadRuleErrors(err, cancel, nds_e, wts_e, Mintegrands, nds, I_ref, [&mode_wts,&col_mode](const Long j) { return mode_wts[col_mode[j]]; }, Nint/FourierModes, [FourierModes](const Long j) { return (j/(2*FourierModes))*2 + j%2; }, Nlen, [B,FourierModes](const Long i) { return i/(B/FourierModes); });
+          const Integer best = detail_quad_tables::FewestNodesQuadRule(nds_e, err, cancel, eps_vec[d]);
+          quad_nds[d] = nds_e[best];
+          quad_wts[d] = wts_e[best];
+        }
       }
       for (Long k = 0; k < max_digits; k++) {
         for (Long i = 0; i < quad_nds[k].Dim(); i++) {
@@ -1799,9 +1922,9 @@ namespace sctl {
     }
     return nds_wts;
   }
-  template <Integer ModalUpsample, class Real, class Kernel, bool trg_dot_prod, bool adap_quad=CSBQ_ADAPTIVE_SELF_QUAD> static void SpecialQuadRule(Vector<Real>& nds, Vector<Real>& wts, const Integer ElemOrder, const Integer trg_node_idx, const Real elem_radius, const Real elem_length, const Integer digits) {
+  template <Integer ModalUpsample, class Real, class Kernel, bool trg_dot_prod, bool adap_quad=CSBQ_ADAPTIVE_SELF_QUAD> static void SpecialQuadRule(Vector<Real>& nds, Vector<Real>& wts, const Integer ElemOrder, const Integer FourierModes, const Integer trg_node_idx, const Real elem_radius, const Real elem_length, const Integer digits) {
     static constexpr Integer max_adap_depth = 30+7; // TODO
-    constexpr Integer MaxFourierModes = 8; // TODO
+    constexpr Integer Ntables = detail_quad_tables::SelfTableCount;
     constexpr Integer MaxElemOrder = 100;
     constexpr Integer max_digits = 19;
 
@@ -1820,7 +1943,7 @@ namespace sctl {
       if (elem_length/elem_radius < aspect_ratio/1.42 || aspect_ratio*1.42 < elem_length/elem_radius) {
         nds_wts.ReInit(ElemOrder);
         for (Long i = 0; i < ElemOrder; i++) {
-          nds_wts[i] = BuildSpecialQuadRules<ModalUpsample,ValueType,Kernel,trg_dot_prod>(ElemOrder, MaxFourierModes, i, elem_length/elem_radius);
+          nds_wts[i] = BuildSpecialQuadRules<ModalUpsample,ValueType,Kernel,trg_dot_prod>(ElemOrder, FourierModes, i, elem_length/elem_radius);
         }
         aspect_ratio = elem_length/elem_radius;
       }
@@ -1837,11 +1960,13 @@ namespace sctl {
 
     // Elements shorter than the shortest table (length/radius sqrt(2)*2^-7) use it: along s, their ring-integrated kernel
     // is a log singularity plus a smooth part, as for the shortest table. Elements longer than the longest table
-    // (length/radius sqrt(2)*2^30) use the adaptive rules.
+    // (length/radius sqrt(2)*2^30) use the adaptive rules. An element uses the table of the fewest Fourier modes that has
+    // as many as the element, and elements with more Fourier modes than the largest table use the adaptive rules.
     const Long quad_idx = std::min<Long>(max_adap_depth-1, (Long)std::floor((max_adap_depth-7) - log2((double)(elem_length/elem_radius*sqrt<Real>(0.5)))));
-    if (!adap_quad && quad_idx >= 0) {
-      auto load_special_quad_rule = [](Vector<Vector<Real>>& nds_lst, Vector<Vector<Real>>& wts_lst, const Integer ElemOrder){
-        const std::string fname = std::string(CSBQ_QUOTEME(CSBQ_DATA_PATH)) + std::string("/special_quad_q") + std::to_string(ElemOrder) + "_" + Kernel::Name() + (trg_dot_prod ? "_dotXn" : "");
+    const Integer table_idx = detail_quad_tables::SelfTableIdx(FourierModes);
+    if (!adap_quad && quad_idx >= 0 && table_idx < Ntables) {
+      auto load_special_quad_rule = [](Vector<Vector<Real>>& nds_lst, Vector<Vector<Real>>& wts_lst, const Integer ElemOrder, const Integer TableModes){
+        const std::string fname = detail_quad_tables::SelfTableFile<Kernel,trg_dot_prod>(ElemOrder, TableModes);
         const auto cheb_nds_ = SlenderElemList<ValueType>::CenterlineNodes(ElemOrder);
 
         Vector<Vector<ValueType>> data;
@@ -1852,7 +1977,7 @@ namespace sctl {
           for (Integer i = 0; i < max_adap_depth; i++) {
             std::cout<<"length = "<<length<<'\n';
             for (Integer trg_node_idx = 0; trg_node_idx < ElemOrder; trg_node_idx++) {
-              auto nds_wts = BuildSpecialQuadRules<ModalUpsample,ValueType,Kernel,trg_dot_prod>(ElemOrder, MaxFourierModes, trg_node_idx, length);
+              auto nds_wts = BuildSpecialQuadRules<ModalUpsample,ValueType,Kernel,trg_dot_prod>(ElemOrder, TableModes, trg_node_idx, length);
               for (Long j = 0; j < max_digits; j++) {
                 data[((i*ElemOrder+trg_node_idx) * max_digits+j)*2+0] = nds_wts[j*2+0];
                 data[((i*ElemOrder+trg_node_idx) * max_digits+j)*2+1] = nds_wts[j*2+1];
@@ -1879,23 +2004,24 @@ namespace sctl {
           }
         }
       };
-      static Vector<Vector<Vector<Real>>> nds_lst(MaxElemOrder);
-      static Vector<Vector<Vector<Real>>> wts_lst(MaxElemOrder);
+      static Vector<Vector<Vector<Real>>> nds_lst(MaxElemOrder*Ntables);
+      static Vector<Vector<Vector<Real>>> wts_lst(MaxElemOrder*Ntables);
       SCTL_ASSERT(ElemOrder < MaxElemOrder);
-      static std::atomic<bool> sq_ready[MaxElemOrder];
-      if (!sq_ready[ElemOrder].load(std::memory_order_acquire)) {
+      static std::atomic<bool> sq_ready[MaxElemOrder*Ntables];
+      const Integer lst_idx = ElemOrder*Ntables + table_idx;
+      if (!sq_ready[lst_idx].load(std::memory_order_acquire)) {
       #pragma omp critical(SCTL_SpecialQuadRule)
-      if (!sq_ready[ElemOrder].load(std::memory_order_relaxed)) {
-        load_special_quad_rule(nds_lst[ElemOrder], wts_lst[ElemOrder], ElemOrder);
-        sq_ready[ElemOrder].store(true, std::memory_order_release);
+      if (!sq_ready[lst_idx].load(std::memory_order_relaxed)) {
+        load_special_quad_rule(nds_lst[lst_idx], wts_lst[lst_idx], ElemOrder, detail_quad_tables::SelfTableModes[table_idx]);
+        sq_ready[lst_idx].store(true, std::memory_order_release);
       }
       }
 
-      const auto& wts0 = wts_lst[ElemOrder][(quad_idx*ElemOrder+trg_node_idx) * max_digits+digits];
-      const auto& nds0 = nds_lst[ElemOrder][(quad_idx*ElemOrder+trg_node_idx) * max_digits+digits];
+      const auto& wts0 = wts_lst[lst_idx][(quad_idx*ElemOrder+trg_node_idx) * max_digits+digits];
+      const auto& nds0 = nds_lst[lst_idx][(quad_idx*ElemOrder+trg_node_idx) * max_digits+digits];
       wts.ReInit(wts0.Dim(), (Iterator<Real>)wts0.begin(), false);
       nds.ReInit(nds0.Dim(), (Iterator<Real>)nds0.begin(), false);
-    } else { // adaptive, also for elements longer than the longest table
+    } else { // adaptive, also for elements longer than the longest table or with more Fourier modes than the largest
       // the log-singular rule extends less than r/8 to each side of the target (inside the distance 2r of the
       // singularities of the ring-integrated kernel) and at most 1/16 of the element (short enough to resolve the density)
       const Integer RefLevels = std::max<Integer>(4, (Integer)(log<Real>(elem_length/elem_radius)/log<Real>(2)+4));
@@ -2363,9 +2489,9 @@ namespace sctl {
       Vector<Real> quad_nds, quad_wts;
       Matrix<Real> Minterp_quad_nds;
       if (trg_dot_prod) {
-        SpecialQuadRule<ModalUpsample,Real,Kernel,true>(quad_nds, quad_wts, ElemOrder, 0, (Real)1, (Real)1, 1);
+        SpecialQuadRule<ModalUpsample,Real,Kernel,true>(quad_nds, quad_wts, ElemOrder, FourierModes, 0, (Real)1, (Real)1, 1);
       } else {
-        SpecialQuadRule<ModalUpsample,Real,Kernel,false>(quad_nds, quad_wts, ElemOrder, 0, (Real)1, (Real)1, 1);
+        SpecialQuadRule<ModalUpsample,Real,Kernel,false>(quad_nds, quad_wts, ElemOrder, FourierModes, 0, (Real)1, (Real)1, 1);
       }
     }
 
@@ -3460,7 +3586,7 @@ namespace sctl {
       const Real inv_norm_dx_trg = 1/norm_dx_trg;
 
       Vector<Real> quad_nds, quad_wts; // Quadrature rule in s
-      SpecialQuadRule<ModalUpsample,Real,Kernel,trg_dot_prod>(quad_nds, quad_wts, ElemOrder, i, r_trg, sqrt<Real>(dot_prod(dx_trg, dx_trg)), digits);
+      SpecialQuadRule<ModalUpsample,Real,Kernel,trg_dot_prod>(quad_nds, quad_wts, ElemOrder, FourierModes, i, r_trg, sqrt<Real>(dot_prod(dx_trg, dx_trg)), digits);
       const Long Nq = quad_nds.Dim();
 
       ScratchBuf<Real> Minterp_buf(ElemOrder*Nq);

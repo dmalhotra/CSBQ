@@ -83,13 +83,14 @@ namespace unit_test {
    */
   template <class Kernel> void RequireQuadTables(const Long FourierOrder, const Long ElemOrder = 10) {
     const std::string path = CSBQ_QUOTEME(CSBQ_DATA_PATH);
+    const Integer table_idx = detail_quad_tables::SelfTableIdx(FourierOrder/2+1);
     const std::string fname_lst[3] = {
       path + "/log_quad",
-      path + "/special_quad_q" + std::to_string(ElemOrder) + "_" + Kernel::Name(),
+      (table_idx < detail_quad_tables::SelfTableCount ? detail_quad_tables::SelfTableFile<Kernel,false>(ElemOrder, detail_quad_tables::SelfTableModes[table_idx]) : std::string()), // none for the adaptive self-interaction rule
       path + "/toroidal_quad_rule_m" + std::to_string(FourierOrder/2+2) + "_" + Kernel::Name() // FourierModes + ModalUpsample = (FourierOrder/2+1) + 1
     };
     for (const auto& fname : fname_lst) {
-      if (!std::ifstream(fname).good()) {
+      if (!fname.empty() && !std::ifstream(fname).good()) {
         std::cout<<"Missing quadrature table: "<<fname<<'\n';
         exit(1);
       }
