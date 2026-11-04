@@ -797,6 +797,79 @@ namespace sctl {
     return nds_wts_lst[ORDER];
   }
 
+  namespace detail_quad_tables {
+    /**
+     * The integrals I of the columns of M, whose rows are the integrands at the nodes, with the rule of weights qwts at
+     * the nodes of rows row(q) of M.
+     */
+    template <class ValueType, class RowFn> static void QuadRuleIntegrals(Vector<ValueType>& I, const Matrix<ValueType>& M, const RowFn& row, const Vector<ValueType>& qwts) {
+      const Long Nint = M.Dim(1);
+      if (I.Dim() != Nint) I.ReInit(Nint);
+      #pragma omp parallel for schedule(static)
+      for (Long j = 0; j < Nint; j++) {
+        ValueType sum = 0;
+        for (Long q = 0; q < qwts.Dim(); q++) sum += qwts[q] * M[row(q)][j];
+        I[j] = sum;
+      }
+    }
+
+    /**
+     * For each rule (quad_nds[e], quad_wts[e]), whose nodes are among nds: its error err[e] in the integrals of the
+     * columns of M, whose rows are the integrands at the nodes nds, and the cancellation of its weights,
+     * cancel[e] = sum |w| / |sum w|. The error is the largest, over the columns j, of the error in the integral of
+     * column j relative to the largest |I_ref[k]| over the columns k of the group col_grp(j), with I_ref the reference
+     * integrals of the columns and Ngrp groups.
+     */
+    template <class ValueType, class ColGrp> static void QuadRuleErrors(Vector<ValueType>& err, Vector<ValueType>& cancel, const Vector<Vector<ValueType>>& quad_nds, const Vector<Vector<ValueType>>& quad_wts, const Matrix<ValueType>& M, const Vector<ValueType>& nds, const Vector<ValueType>& I_ref, const Long Ngrp, const ColGrp& col_grp) {
+      const Long N = nds.Dim(), Nint = M.Dim(1);
+      const Integer Nrules = quad_nds.Dim();
+      ScratchBuf<std::pair<ValueType,Long>> sorted_nds(N); // (nds[i], i) sorted, to find the rows of the nodes of a rule
+      for (Long i = 0; i < N; i++) sorted_nds[i] = std::make_pair(nds[i], i);
+      std::sort(sorted_nds.begin(), sorted_nds.end());
+
+      ScratchBuf<ValueType> scale(Ngrp), I_buf(Nint);
+      Vector<ValueType> I(Nint, I_buf.begin(), false);
+      std::fill(scale.begin(), scale.end(), (ValueType)0);
+      for (Long j = 0; j < Nint; j++) scale[col_grp(j)] = std::max<ValueType>(scale[col_grp(j)], fabs(I_ref[j]));
+
+      if (err.Dim() != Nrules) err.ReInit(Nrules);
+      if (cancel.Dim() != Nrules) cancel.ReInit(Nrules);
+      for (Integer e = 0; e < Nrules; e++) {
+        ScratchBuf<Long> rows(quad_nds[e].Dim());
+        for (Long q = 0; q < rows.size(); q++) rows[q] = std::lower_bound(sorted_nds.begin(), sorted_nds.end(), std::make_pair(quad_nds[e][q], (Long)0))->second;
+        QuadRuleIntegrals(I, M, [&rows](const Long q) { return rows[q]; }, quad_wts[e]);
+        err[e] = 0;
+        for (Long j = 0; j < Nint; j++) err[e] = std::max<ValueType>(err[e], fabs(I[j]-I_ref[j]) / scale[col_grp(j)]);
+        ValueType sum = 0;
+        ValueType sum_abs = 0;
+        for (const auto w : quad_wts[e]) {
+          sum += w;
+          sum_abs += fabs(w);
+        }
+        cancel[e] = sum_abs / fabs(sum);
+      }
+    }
+
+    /**
+     * The index of the rule with the fewest nodes among those with error err <= eps whose weights cancel little
+     * (cancel <= 2) or, if there is none, of the rule with the smallest error among those whose weights cancel little,
+     * or among all if there is none of those either.
+     */
+    template <class ValueType> static Integer FewestNodesQuadRule(const Vector<Vector<ValueType>>& quad_nds, const Vector<ValueType>& err, const Vector<ValueType>& cancel, const ValueType eps) {
+      const Integer Nrules = quad_nds.Dim();
+      Integer best = -1;
+      for (Integer e = 0; e < Nrules; e++) {
+        if (err[e] <= eps && cancel[e] <= 2 && (best < 0 || quad_nds[e].Dim() < quad_nds[best].Dim())) best = e;
+      }
+      if (best < 0) {
+        for (Integer e = 0; e < Nrules; e++) {
+          if (best < 0 || (cancel[e] <= 2) > (cancel[best] <= 2) || ((cancel[e] <= 2) == (cancel[best] <= 2) && err[e] < err[best])) best = e;
+        }
+      }
+      return best;
+    }
+  }
+
   template <class RealType, class Kernel, Integer adap> static Vector<Vector<RealType>> BuildToroidalSpecialQuadRules(Integer Nmodes, Integer VecLen) {
     const std::string fname = std::string(CSBQ_QUOTEME(CSBQ_DATA_PATH)) + std::string("/toroidal_quad_rule_m") + std::to_string(Nmodes) + "_" + Kernel::Name();
     constexpr Integer COORD_DIM = 3;
@@ -965,6 +1038,22 @@ namespace sctl {
             const Vector<ValueType> wts_(Nnds/2, wts.begin(), false);
             Vector<Vector<ValueType>> quad_nds_, quad_wts_;
             auto cond_num_vec = InterpQuadRule<ValueType>::Build(quad_nds_, quad_wts_, Mintegrands_, nds_, wts_, eps_vec);
+            { // The rule for d digits: the one with the fewest nodes that integrates the training integrands to 10^-d,
+              // relative to the largest integral of each target, and whose weights cancel little (sum |w| <= 2 |sum w|).
+              const Long KDIM1 = Kernel::TrgDim(), Ntrg = Nint/(Nmodes*2*Kernel::SrcDim()*KDIM1), Nrules = quad_nds_.Dim();
+              ScratchBuf<ValueType> I_ref_buf(Nint), err_buf(Nrules), cancel_buf(Nrules);
+              Vector<ValueType> I_ref(Nint, I_ref_buf.begin(), false), err(Nrules, err_buf.begin(), false), cancel(Nrules, cancel_buf.begin(), false);
+              detail_quad_tables::QuadRuleIntegrals(I_ref, Mintegrands_, [](const Long q) { return q; }, wts_);
+              detail_quad_tables::QuadRuleErrors(err, cancel, quad_nds_, quad_wts_, Mintegrands_, nds_, I_ref, Ntrg, [KDIM1,Ntrg](const Long j) { return (j/KDIM1)%Ntrg; });
+              Vector<Vector<ValueType>> nds_sel(max_digits), wts_sel(max_digits);
+              for (Integer d = 0; d < max_digits; d++) {
+                const Integer best = detail_quad_tables::FewestNodesQuadRule(quad_nds_, err, cancel, eps_vec[d]);
+                nds_sel[d] = quad_nds_[best];
+                wts_sel[d] = quad_wts_[best];
+              }
+              quad_nds_ = nds_sel;
+              quad_wts_ = wts_sel;
+            }
             quad_nds.ReInit(quad_nds_.Dim());
             quad_wts.ReInit(quad_wts_.Dim());
             for (Long i = 0; i < quad_nds.Dim(); i++) {
