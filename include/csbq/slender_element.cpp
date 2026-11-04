@@ -3432,8 +3432,8 @@ namespace sctl {
     const Vector<Real>     dr(        1*ElemOrder,(Iterator<Real>)this->    dr.begin()+          elem_dsp[elem_idx],false);
     const Vector<Real>     e1(COORD_DIM*ElemOrder,(Iterator<Real>)this->    e1.begin()+COORD_DIM*elem_dsp[elem_idx],false);
 
-    const Real dtheta = 2*const_pi<Real>()/FourierOrder;
-    const std::complex<Real> exp_dtheta(cos<Real>(dtheta), sin<Real>(dtheta));
+    const Vector<Real>& cos_theta_trg = cos_theta<Real>(FourierOrder); // the angles of the surface nodes, as in GetGeom
+    const Vector<Real>& sin_theta_trg = sin_theta<Real>(FourierOrder);
 
     ScratchBuf<Real> M_modal_buf(ElemOrder*FourierOrder * ElemOrder*KDIM0*KDIM1*FourierModes*2);
     Matrix<Real> M_modal(ElemOrder*FourierOrder, ElemOrder*KDIM0*KDIM1*FourierModes*2, M_modal_buf.begin(), false);
@@ -3497,7 +3497,17 @@ namespace sctl {
       //Matrix<Real>::GEMM(  x_src, Matrix<Real>(COORD_DIM,ElemOrder,(Iterator<Real>) coord.begin(),false), Minterp_quad_nds);
       Matrix<Real>::GEMM( dx_src, Matrix<Real>(COORD_DIM,ElemOrder,(Iterator<Real>)    dx.begin(),false), Minterp_quad_nds);
       Matrix<Real>::GEMM(d2x_src, Matrix<Real>(COORD_DIM,ElemOrder,(Iterator<Real>)   d2x.begin(),false), Minterp_quad_nds);
-      Matrix<Real>::GEMM(  r_src, Matrix<Real>(        1,ElemOrder,(Iterator<Real>)radius.begin(),false), Minterp_quad_nds);
+      { // Set r_src = r_trg + the interpolant of radius - r_trg
+        ScratchBuf<Real> r_nodes_buf(ElemOrder);
+        Matrix<Real> r_nodes(1, ElemOrder, r_nodes_buf.begin(), false);
+        for (Long j = 0; j < ElemOrder; j++) {
+          r_nodes[0][j] = radius[j] - r_trg;
+        }
+        Matrix<Real>::GEMM(  r_src, r_nodes, Minterp_quad_nds);
+        for (Long j = 0; j < Nq; j++) {
+          r_src[0][j] += r_trg;
+        }
+      }
       Matrix<Real>::GEMM( dr_src, Matrix<Real>(        1,ElemOrder,(Iterator<Real>)    dr.begin(),false), Minterp_quad_nds);
       Matrix<Real>::GEMM( e1_src, Matrix<Real>(COORD_DIM,ElemOrder,(Iterator<Real>)    e1.begin(),false), Minterp_quad_nds);
       for (Long j = 0; j < Nq; j++) { // Set e1_src
@@ -3515,13 +3525,13 @@ namespace sctl {
       }
 
 
-      std::complex<Real> exp_theta_trg(1,0);
       for (Long j = 0; j < ElemOrder; j++) { // Minterp_quad_nds *= quad_wts
         for (Long k = 0; k < Nq; k++) {
           Minterp_quad_nds[j][k] *= quad_wts[k];
         }
       }
       for (Long j = 0; j < FourierOrder; j++) {
+        const std::complex<Real> exp_theta_trg(cos_theta_trg[j], sin_theta_trg[j]);
         auto compute_Xn_trg = [&exp_theta_trg,&dx_trg,&d2x_trg,&e1_trg,&e2_trg,&r_trg,&dr_trg,&norm_dx_trg,&inv_norm_dx_trg]() { // Set n_trg
           Real cost = exp_theta_trg.real();
           Real sint = exp_theta_trg.imag();
@@ -3547,7 +3557,6 @@ namespace sctl {
 
         Matrix<Real> M_modal_(ElemOrder, KDIM0*KDIM1*FourierModes*2, M_modal[i*FourierOrder+j], false);
         Matrix<Real>::GEMM(M_modal_, Minterp_quad_nds, M_tor);
-        exp_theta_trg *= exp_dtheta;
       }
     }
 
