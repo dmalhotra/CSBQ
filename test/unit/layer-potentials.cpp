@@ -19,6 +19,12 @@
  * near-interaction (targets at 1e-6 to 4 radii from the surface, on both
  * sides), and how it follows the accuracy tolerance.
  *
+ * 4) the gradient of the Laplace single layer and the Stokes traction tensor,
+ * which take the ring rules of the double layer, and with target normals the
+ * normal derivative and the traction, at 1e-6 to 1e-1 radii from the surface,
+ * against the same layer potentials in long double where it is wider than
+ * double (ring rules built at run time), and at a smaller tolerance otherwise.
+ *
  * The errors must be within ErrFactor times the accuracy tolerance.
  *
  * The program returns a non-zero exit status if a check fails. To compile and
@@ -248,6 +254,98 @@ void CheckIdentities(const std::string& ker_name, const Matrix<double>& err, con
   }
 }
 
+/**
+ * long double where it is wider than double, and double otherwise. In long
+ * double, CSBQ builds the ring rules at run time instead of reading the tables.
+ */
+using RefReal = std::conditional<(sizeof(long double) > sizeof(double)), long double, double>::type;
+
+/**
+ * Errors of the layer potential of KerGrad (the gradient of the Laplace single
+ * layer, or the Stokes traction tensor), which takes the ring rules of the
+ * double layer, with the accuracy tolerance tol at points at dist[g] radii from
+ * the surface of two elements, on both sides (column g), against the same layer
+ * potential in RefReal with tolerance 1e-15. With trg_dot_prod, the layer
+ * potential is the product with the target normals (the normal derivative, or
+ * the traction), the normals of the surface at the points the targets are
+ * offset from. The density is a smooth function of the position; the errors
+ * are relative to the max-norm of the reference at each distance.
+ */
+template <class KerGrad> Vector<double> NearGradientErrors(const Vector<double>& dist, const double tol, const bool trg_dot_prod) {
+  constexpr Integer KDIM = KerGrad::SrcDim();
+  RequireQuadTables<KerGrad,true>(FourierOrder, ElemOrder); // for the ring table, which the off-surface targets use; without target normals these kernels have no self-interaction table to check
+
+  SlenderElemList<double> elem_lst;
+  SlenderElemList<RefReal> elem_lst_ref;
+  { // Set elem_lst, and elem_lst_ref with the same centerline and radii
+    Vector<double> Xc, radius;
+    BuildElemList(elem_lst, LoopGeom, PanelBreakpoints(), ElemOrder, FourierOrder, (Vector<double>*)nullptr, &Xc, &radius);
+    const Long Nelem = elem_lst.Size();
+    Vector<Long> elem_order(Nelem), fourier_order(Nelem);
+    elem_order = ElemOrder;
+    fourier_order = FourierOrder;
+    Vector<RefReal> Xc_ref(Xc.Dim()), radius_ref(radius.Dim());
+    for (Long i = 0; i < Xc.Dim(); i++) Xc_ref[i] = Xc[i];
+    for (Long i = 0; i < radius.Dim(); i++) radius_ref[i] = radius[i];
+    elem_lst_ref.Init(elem_order, fourier_order, Xc_ref, radius_ref);
+  }
+
+  Vector<double> Xt, Xnt;
+  Vector<Long> dsp{0}; // the first target at each distance, and the number of targets at the end
+  for (const auto d : dist) {
+    const Long Nelem = elem_lst.Size();
+    for (const Long e : {Nelem/4, (3*Nelem)/4}) {
+      OffSurfacePoints(Xt, elem_lst, e, Vector<double>{0.3, 0.8}, Vector<double>{0.5, 2.6, 4.4}, Vector<double>{d, -d}, &Xnt);
+    }
+    dsp.PushBack(Xt.Dim()/COORD_DIM);
+  }
+
+  const auto density = [](const auto& X) { // at the points X (AoS order)
+    using Real = typename std::decay<decltype(X[0])>::type;
+    const Long N = X.Dim()/COORD_DIM;
+    Vector<Real> F(N*KDIM);
+    for (Long i = 0; i < N; i++) {
+      for (Integer k = 0; k < KDIM; k++) F[i*KDIM+k] = cos<Real>(X[i*COORD_DIM+0] + 2*X[i*COORD_DIM+1] + k) * exp<Real>(X[i*COORD_DIM+2]);
+    }
+    return F;
+  };
+
+  const KerGrad ker;
+  Vector<double> U, Uref;
+  { // Set U
+    Vector<double> X;
+    elem_lst.GetNodeCoord(&X, nullptr, nullptr);
+    BoundaryIntegralOp<double,KerGrad> op(ker, trg_dot_prod, Comm::Self());
+    op.AddElemList(elem_lst);
+    op.SetAccuracy(tol);
+    op.SetTargetCoord(Xt);
+    if (trg_dot_prod) op.SetTargetNormal(Xnt);
+    op.ComputePotential(U, density(X));
+  }
+  { // Set Uref
+    Vector<RefReal> X, Xt_ref(Xt.Dim()), Xnt_ref(Xnt.Dim()), U_ref;
+    for (Long i = 0; i < Xt.Dim(); i++) Xt_ref[i] = Xt[i];
+    for (Long i = 0; i < Xnt.Dim(); i++) Xnt_ref[i] = Xnt[i];
+    elem_lst_ref.GetNodeCoord(&X, nullptr, nullptr);
+    BoundaryIntegralOp<RefReal,KerGrad> op(ker, trg_dot_prod, Comm::Self());
+    op.AddElemList(elem_lst_ref);
+    op.SetAccuracy((RefReal)1e-15);
+    op.SetTargetCoord(Xt_ref);
+    if (trg_dot_prod) op.SetTargetNormal(Xnt_ref);
+    op.ComputePotential(U_ref, density(X));
+    Uref.ReInit(U_ref.Dim());
+    for (Long i = 0; i < U_ref.Dim(); i++) Uref[i] = (double)U_ref[i];
+  }
+
+  const Long Ndim = U.Dim()/(Xt.Dim()/COORD_DIM); // values per target
+  Vector<double> err(dist.Dim());
+  for (Long g = 0; g < dist.Dim(); g++) {
+    const Long offset = dsp[g]*Ndim, len = (dsp[g+1]-dsp[g])*Ndim;
+    err[g] = MaxErr(Vector<double>(len, U.begin()+offset, false), Vector<double>(len, Uref.begin()+offset, false));
+  }
+  return err;
+}
+
 int main(int argc, char** argv) {
   Comm::MPI_Init(&argc, &argv);
   int status;
@@ -268,6 +366,22 @@ int main(int argc, char** argv) {
 
     const Matrix<double> err_stokes = IdentityErrors<Stokes3D_FxU, Stokes3D_DxU, Stokes3D_FxT>(elem_lst, trg, X0_out, X0_in, Vector<double>{0.6, -0.8, 1.2}, tol);
     CheckIdentities("Stokes", err_stokes, trg, tol);
+
+    { // the gradient of the Laplace single layer and the Stokes traction tensor near the surface, and with target normals the normal derivative and the traction, with the double-layer ring rules
+      const Vector<double> dist{1e-1, 1e-3, 1e-6};
+      const Vector<double> err_grad = NearGradientErrors<Laplace3D_FxdU>(dist, tol, false);
+      const Vector<double> err_tensor = NearGradientErrors<Stokes3D_FxT>(dist, tol, false);
+      const Vector<double> err_normal = NearGradientErrors<Laplace3D_FxdU>(dist, tol, true);
+      const Vector<double> err_traction = NearGradientErrors<Stokes3D_FxT>(dist, tol, true);
+      for (Long g = 0; g < dist.Dim(); g++) {
+        std::stringstream ss;
+        ss<<": near, d = "<<std::scientific<<std::setprecision(0)<<dist[g]<<" r, against "<<(sizeof(RefReal) > sizeof(double) ? "long double" : "tolerance 1e-15");
+        Check("Laplace gradient of the single layer" + ss.str(), err_grad[g], ErrFactor*tol);
+        Check("Stokes traction tensor of the single layer" + ss.str(), err_tensor[g], ErrFactor*tol);
+        Check("Laplace normal derivative of the single layer" + ss.str(), err_normal[g], ErrFactor*tol);
+        Check("Stokes traction of the single layer" + ss.str(), err_traction[g], ErrFactor*tol);
+      }
+    }
 
     for (const double tol_ : {1e-4, 1e-6, 1e-8}) { // Laplace: the error follows the accuracy tolerance
       const Matrix<double> err = IdentityErrors<Laplace3D_FxU, Laplace3D_DxU, Laplace3D_FxdU>(elem_lst, trg, X0_out, X0_in, Vector<double>{1.0}, tol_);

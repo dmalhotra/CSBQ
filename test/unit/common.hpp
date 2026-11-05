@@ -156,9 +156,10 @@ namespace unit_test {
    * orientation vector of the element), at distance dist*r from the surface,
    * where r is the cross-sectional radius at s (outside for dist > 0, inside
    * for dist < 0). The points are appended to Xt in AoS order, looping over s,
-   * then theta, then dist.
+   * then theta, then dist. If Xnt is given, the unit normal of the surface at
+   * the point each one is offset from is appended to it, in the same order.
    */
-  template <class Real> void OffSurfacePoints(Vector<Real>& Xt, const SlenderElemList<Real>& elem_lst, const Long elem_idx, const Vector<Real>& s, const Vector<Real>& theta, const Vector<Real>& dist) {
+  template <class Real> void OffSurfacePoints(Vector<Real>& Xt, const SlenderElemList<Real>& elem_lst, const Long elem_idx, const Vector<Real>& s, const Vector<Real>& theta, const Vector<Real>& dist, Vector<Real>* Xnt = nullptr) {
     constexpr Integer COORD_DIM = 3;
     const Long Ns = s.Dim(), Nt = theta.Dim();
     Vector<Real> sin_theta(Nt), cos_theta(Nt);
@@ -182,6 +183,9 @@ namespace unit_test {
         for (const auto d : dist) {
           for (Integer k = 0; k < COORD_DIM; k++) {
             Xt.PushBack(X[idx*COORD_DIM+k] + Xn[idx*COORD_DIM+k] * (d*r));
+          }
+          if (Xnt) {
+            for (Integer k = 0; k < COORD_DIM; k++) Xnt->PushBack(Xn[idx*COORD_DIM+k]);
           }
         }
       }
