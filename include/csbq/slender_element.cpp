@@ -18,6 +18,7 @@
 #include <functional>                  // for function
 #include <iomanip>                     // for operator<<, setw, setprecision
 #include <iostream>                    // for cout
+#include <numeric>                     // for inclusive_scan
 #include <sstream>                     // for basic_istringstream
 #include <string>                      // for char_traits, basic_string, all...
 #include <utility>                     // for pair
@@ -2587,9 +2588,12 @@ namespace sctl {
     static constexpr Integer KDIM0 = Kernel::SrcDim();
     static constexpr Integer KDIM1 = Kernel::TrgDim()/(trg_dot_prod?COORD_DIM:1);
 
-    constexpr double rho = (double)2.5;
-    //const Integer digits = (Integer)(log(tol)/log(0.1)+0.5);
-    static const Integer LegQuadOrder = (Integer)ceil(-log(((15.0*(rho*rho-1))/64.0)*(double)pow<digits,Real>((Real)0.1))/log(rho)*0.5+1);
+    constexpr double rho = (double)3.0;
+    constexpr double bend_coeff = 0.35;
+    const auto panel_order = [](const double rho_panel) { // Gauss-Legendre points for a panel whose Bernstein ellipse rho_panel is free of singularities
+      return (Integer)ceil(-log(((15.0*(rho_panel*rho_panel-1))/64.0)*pow(10.0,-(digits+0.5)))/log(rho_panel)*0.5+1);
+    };
+    static const Integer LegQuadOrder = panel_order(rho/(1+2*bend_coeff)); // the most points of a panel
 
     const Integer ElemOrder = cheb_order[elem_idx];
     const Integer FourierOrder = fourier_order[elem_idx];
@@ -2631,248 +2635,14 @@ namespace sctl {
         constexpr Long MaxPanels = 1000;
         ScratchBuf<Real> quad_nds_buf(MaxPanels*LegQuadOrder), quad_wts_buf(MaxPanels*LegQuadOrder);
         Vector<Real> quad_nds, quad_wts; // Quadrature rule in s
-        auto adap_quad_rule = [&ElemOrder,&radius,&dr,&coord,&dx,&d2x,&dx_max,&quad_nds_buf,&quad_wts_buf](Vector<Real>& quad_nds, Vector<Real>& quad_wts, const Vec3& x_trg) {
-          const auto& leg_nds = LegendreQuadRule<Real>(LegQuadOrder).first;
-          const auto& leg_wts = LegendreQuadRule<Real>(LegQuadOrder).second;
-          auto adap_ref = [&leg_nds,&leg_wts](Vector<Real>& nds, Vector<Real>& wts, Real a, Real b, Integer levels) {
-            if (nds.Dim() != levels * LegQuadOrder) nds.ReInit(levels*LegQuadOrder);
-            if (wts.Dim() != levels * LegQuadOrder) wts.ReInit(levels*LegQuadOrder);
-            Vector<Real> nds_(nds.Dim(), nds.begin(), false);
-            Vector<Real> wts_(wts.Dim(), wts.begin(), false);
-
-            while (levels) {
-              Vector<Real> nds0(LegQuadOrder, nds_.begin(), false);
-              Vector<Real> wts0(LegQuadOrder, wts_.begin(), false);
-              Vector<Real> nds1((levels-1)*LegQuadOrder, nds_.begin()+LegQuadOrder, false);
-              Vector<Real> wts1((levels-1)*LegQuadOrder, wts_.begin()+LegQuadOrder, false);
-
-              const Real end_point = (levels==1 ? b : (a+b)*0.5);
-              const Real panel_scal = (end_point-a);
-              const Real panel_scal_abs = fabs<Real>(end_point-a);
-              for (Long i = 0; i < LegQuadOrder; i++) {
-                nds0[i] = leg_nds[i] * panel_scal + a;
-                wts0[i] = leg_wts[i] * panel_scal_abs;
-              }
-
-              nds_.Swap(nds1);
-              wts_.Swap(wts1);
-              a = end_point;
-              levels--;
-            }
-          };
-
+        auto adap_quad_rule = [&ElemOrder,&radius,&dr,&coord,&dx,&d2x,&dx_max,&quad_nds_buf,&quad_wts_buf,&panel_order](Vector<Real>& quad_nds, Vector<Real>& quad_wts, const Vec3& x_trg) {
           // TODO: develop special quadrature rule instead of adaptive integration
-          if (0) { // dyadic refinement on element ends
-            const Integer levels = 6;
-            quad_nds.ReInit(2*levels*LegQuadOrder);
-            quad_wts.ReInit(2*levels*LegQuadOrder);
-            Vector<Real> nds0(levels*LegQuadOrder,quad_nds.begin(),false);
-            Vector<Real> wts0(levels*LegQuadOrder,quad_wts.begin(),false);
-            Vector<Real> nds1(levels*LegQuadOrder,quad_nds.begin()+levels*LegQuadOrder,false);
-            Vector<Real> wts1(levels*LegQuadOrder,quad_wts.begin()+levels*LegQuadOrder,false);
-            adap_ref(nds0, wts0, 0.5, 0.0, levels);
-            adap_ref(nds1, wts1, 0.5, 1.0, levels);
-          }
-          if (0) { // dyadic refinement near target point
-            Real dist_min, s_min, dxds;
-            { // Set dist_min, s_min, dxds
-              auto get_dist = [&ElemOrder,&radius,&coord,&dx] (const Vec3& x_trg, Real s) -> Real {
-                ScratchBuf<Real> interp_wts_buf(ElemOrder);
-                Vector<Real> interp_wts(ElemOrder, interp_wts_buf.begin(), false);
-                LagrangeInterp<Real>::Interpolate(interp_wts, CenterlineNodes(ElemOrder), Vector<Real>(1,Ptr2Itr<Real>(&s,1),false));
-
-                Real r0 = 0;
-                Vec3 x0, dx_ds0;
-                for (Long i = 0; i < COORD_DIM; i++) {
-                  x0(i,0) = 0;
-                  dx_ds0(i,0) = 0;
-                }
-                for (Long i = 0; i < ElemOrder; i++) {
-                  r0 += radius[i] * interp_wts[i];
-                  x0(0,0) += coord[0*ElemOrder+i] * interp_wts[i];
-                  x0(1,0) += coord[1*ElemOrder+i] * interp_wts[i];
-                  x0(2,0) += coord[2*ElemOrder+i] * interp_wts[i];
-                  dx_ds0(0,0) += dx[0*ElemOrder+i] * interp_wts[i];
-                  dx_ds0(1,0) += dx[1*ElemOrder+i] * interp_wts[i];
-                  dx_ds0(2,0) += dx[2*ElemOrder+i] * interp_wts[i];
-                }
-                Vec3 dx = x0 - x_trg;
-                Vec3 n0 = dx_ds0 * sqrt<Real>(1/dot_prod(dx_ds0, dx_ds0));
-                Real dz = dot_prod(dx, n0);
-                Vec3 dr = dx - n0*dz;
-                Real dR = sqrt<Real>(dot_prod(dr,dr)) - r0;
-                return sqrt<Real>(dR*dR + dz*dz);
-              };
-              const auto bin_search = [&get_dist](Real& s_min, Real& dist_min, const Vec3& x_trg) {
-                StaticArray<Real,2> dist;
-                StaticArray<Real,2> s_val{0,1};
-                dist[0] = get_dist(x_trg, s_val[0]);
-                dist[1] = get_dist(x_trg, s_val[1]);
-                for (Long i = 0; i < 90; i++) { // Binary search: set dist, s_val
-                  Real ss0 = (s_val[0]*2 + s_val[1])/3;
-                  Real ss1 = (s_val[0] + s_val[1]*2)/3;
-                  Real dd0 = get_dist(x_trg, ss0);
-                  Real dd1 = get_dist(x_trg, ss1);
-                  if (dd0 > dd1) {
-                    dist[0] = dd0;
-                    s_val[0] = ss0;
-                  } else {
-                    dist[1] = dd1;
-                    s_val[1] = ss1;
-                  }
-                }
-                if (dist[0] < dist[1]) { // Set dis_min, s_min
-                  dist_min = dist[0];
-                  s_min = s_val[0];
-                } else {
-                  dist_min = dist[1];
-                  s_min = s_val[1];
-                }
-              };
-
-              const auto newton_iter_step = [&ElemOrder,&radius,&dr,&coord,&dx,&d2x](Real& ds, Real& dist2, Real& dyds2, const Real s, const Vec3& x_trg) {
-                ScratchBuf<Real> interp_wts_buf(ElemOrder);
-                Vector<Real> interp_wts(ElemOrder, interp_wts_buf.begin(), false);
-                LagrangeInterp<Real>::Interpolate(interp_wts, CenterlineNodes(ElemOrder), Vector<Real>(1,(Iterator<Real>)Ptr2ConstItr<Real>(&s,1),false));
-
-                Vec3 x0, dx0, d2x0;
-                Real r0 = 0, dr0 = 0;
-                for (Long i = 0; i < COORD_DIM; i++) {
-                  x0(i,0) = 0;
-                  dx0(i,0) = 0;
-                  d2x0(i,0) = 0;
-                }
-                for (Long i = 0; i < ElemOrder; i++) {
-                  x0(0,0) += coord[0*ElemOrder+i] * interp_wts[i];
-                  x0(1,0) += coord[1*ElemOrder+i] * interp_wts[i];
-                  x0(2,0) += coord[2*ElemOrder+i] * interp_wts[i];
-                  dx0(0,0) += dx[0*ElemOrder+i] * interp_wts[i];
-                  dx0(1,0) += dx[1*ElemOrder+i] * interp_wts[i];
-                  dx0(2,0) += dx[2*ElemOrder+i] * interp_wts[i];
-                  d2x0(0,0) += d2x[0*ElemOrder+i] * interp_wts[i];
-                  d2x0(1,0) += d2x[1*ElemOrder+i] * interp_wts[i];
-                  d2x0(2,0) += d2x[2*ElemOrder+i] * interp_wts[i];
-                  r0 += radius[i] * interp_wts[i];
-                  dr0 += dr[i] * interp_wts[i];
-                }
-
-                Vec3 n0, dy;
-                { // Set n0, dy
-                  const Vec3 Xt_X0 = x_trg - x0;
-                  n0 = -cross_prod(cross_prod(Xt_X0, dx0), dx0);
-                  Real scal = (1/sqrt<Real>(dot_prod(n0,n0)));
-                  n0 = n0 * scal;
-                  Vec3 dn0 = -(cross_prod(cross_prod(Xt_X0, d2x0), dx0) + cross_prod(cross_prod(Xt_X0, dx0), d2x0)) * scal;
-                  dn0 = dn0 - n0 * dot_prod(dn0,n0);
-                  dy = dx0 + n0 * dr0 + dn0 * r0;
-                }
-
-                const Vec3 y_Xt = x0 + n0 * r0 - x_trg;
-                dyds2 = dot_prod(dy, dy);
-                dist2 = dot_prod(y_Xt, y_Xt);
-                ds = dot_prod(y_Xt,dy)/dot_prod(dy,dy);
-              };
-              const auto newton_iter = [&newton_iter_step,&bin_search](Real& s0, Real& dist0, const Vec3& x_trg) {
-                static const Real eps_sqrt = sqrt<Real>(machine_eps<Real>());
-                constexpr Integer max_iter = 100;
-                const Real tol2 = 1e-4;
-
-                Real dyds2;
-                Real d2, d2_;
-                Real ds, ds_;
-                newton_iter_step(ds_, d2_, dyds2, 0, x_trg);
-                newton_iter_step(ds, d2, dyds2, 1, x_trg);
-                if (d2_ < d2) {
-                  if (ds_ > 0) {
-                    s0 = 0;
-                    dist0 = sqrt<Real>(d2_);
-                    return;
-                  }
-                } else {
-                  if (ds < 0) {
-                    s0 = 1;
-                    dist0 = sqrt<Real>(d2);
-                    return;
-                  }
-                }
-
-                Real s, s_ = (Real)0.5;
-                Real s_min = (Real)0, s_max = (Real)1;
-                newton_iter_step(ds_, d2_, dyds2, s_, x_trg);
-                s = std::min(s_max, std::max<Real>(s_min, s_ - ds_));
-                for (Integer iter = 0; iter < max_iter; iter++) {
-                  newton_iter_step(ds, d2, dyds2, s, x_trg);
-                  if ((ds*ds)*dyds2 < tol2*d2 || (s==0 && ds>0) || (s==1 && ds<0)) break;
-                  if (d2 < d2_ || (d2 < d2_*(1+eps_sqrt) && fabs(ds)<fabs(ds_))) {
-                    if (ds > 0) s_max = s;
-                    else s_min = s;
-                    SCTL_ASSERT(s_min < s_max);
-
-                    Real scal = std::min<Real>((Real)10.0, (ds!=ds_ ? (s-s_)/(ds-ds_) : (Real)1));
-                    if (scal <= 0.1) scal = (Real)1;
-                    Real s__ = s - ds * scal;
-
-                    ds_ = ds;
-                    d2_ = d2;
-                    s_ = s;
-
-                    s = std::min((Real)1, std::max<Real>((Real)0, s__));
-                    if (s < s_min || s > s_max) s = (s_min + s_max) * (Real)0.5;
-                  } else {
-                    s = (s+s_)*0.5;
-                  }
-                  if (iter == max_iter-1) {
-                    SCTL_WARN("Newton iterations failed to converge");
-                    bin_search(s0, dist0, x_trg);
-                  }
-                }
-
-                s0 = s;
-                dist0 = sqrt<Real>(d2);
-              };
-              newton_iter(s_min, dist_min, x_trg);
-              //bin_search(s_min, dist_min, x_trg);
-
-              { // Set dx_ds;
-                ScratchBuf<Real> interp_wts_buf(ElemOrder);
-                Vector<Real> interp_wts(ElemOrder, interp_wts_buf.begin(), false);
-                LagrangeInterp<Real>::Interpolate(interp_wts, CenterlineNodes(ElemOrder), Vector<Real>(1,Ptr2Itr<Real>(&s_min,1),false));
-
-                Vec3 dxds_vec;
-                for (Long i = 0; i < COORD_DIM; i++) {
-                  dxds_vec(i,0) = 0;
-                }
-                for (Long i = 0; i < ElemOrder; i++) {
-                  dxds_vec(0,0) += dx[0*ElemOrder+i] * interp_wts[i];
-                  dxds_vec(1,0) += dx[1*ElemOrder+i] * interp_wts[i];
-                  dxds_vec(2,0) += dx[2*ElemOrder+i] * interp_wts[i];
-                }
-                dxds = sqrt<Real>(dot_prod(dxds_vec,dxds_vec))*const_pi<Real>()/2;
-              }
-            }
-
-            const Real h0 =   (s_min)*dxds;
-            const Real h1 = (1-s_min)*dxds;
-            static const double log2_inv = 1/log(2.0);
-            const Integer adap_levels0 = (s_min==0 ? 0 : std::max<Integer>(0,(Integer)ceil(log((double)(h0/dist_min))*log2_inv))+1);
-            const Integer adap_levels1 = (s_min==1 ? 0 : std::max<Integer>(0,(Integer)ceil(log((double)(h1/dist_min))*log2_inv))+1);
-
-            Long N0 = adap_levels0 * LegQuadOrder;
-            Long N1 = adap_levels1 * LegQuadOrder;
-            quad_nds.ReInit(N0+N1);
-            quad_wts.ReInit(N0+N1);
-            Vector<Real> nds0(N0, quad_nds.begin(), false);
-            Vector<Real> wts0(N0, quad_wts.begin(), false);
-            Vector<Real> nds1(N1, quad_nds.begin()+N0, false);
-            Vector<Real> wts1(N1, quad_wts.begin()+N0, false);
-            adap_ref(nds0, wts0, 0, s_min, adap_levels0);
-            adap_ref(nds1, wts1, 1, s_min, adap_levels1);
-          }
-          if (1) { // adaptive refinement
+          { // adaptive refinement
             Long Npanel = 0;
             ScratchBuf<Real> s_vec(MaxPanels+1);
-            { // Set s_vec, Npanel (7% - 15% of near interaction time)
-              const auto get_geom = [&ElemOrder,&radius,&dr,&coord,&dx,&d2x](Vec3& y, Real& dist_xt, Real& dyds, const Real s, const Vec3& x_trg, const Vec3& yy) {
+            ScratchBuf<Long> n_vec(MaxPanels); // Gauss-Legendre points of each panel
+            { // Set s_vec, n_vec, Npanel (7% - 15% of near interaction time)
+              const auto get_geom = [&ElemOrder,&radius,&dr,&coord,&dx,&d2x](Vec3& y, Real& dist_xt, Real& dyds, Vec3& dxds, const Real s, const Vec3& x_trg, const Vec3& yy) {
                 ScratchBuf<Real> interp_wts_buf(ElemOrder);
                 Vector<Real> interp_wts(ElemOrder, interp_wts_buf.begin(), false);
                 LagrangeInterp<Real>::Interpolate(interp_wts, CenterlineNodes(ElemOrder), Vector<Real>(1,(Iterator<Real>)Ptr2ConstItr<Real>(&s,1),false));
@@ -2919,6 +2689,7 @@ namespace sctl {
                 //ds = dot_prod(y,dy)/dot_prod(dy,dy);
                 dist_xt = sqrt<Real>(dot_prod(y, y));
                 dyds = sqrt<Real>(dot_prod(dy, dy));
+                dxds = dx0;
 
                 const Vec3 nn = cross_prod(cross_prod(x0-yy, dx0), dx0);
                 const Real nn_2 = dot_prod(nn,nn);
@@ -2929,28 +2700,39 @@ namespace sctl {
 
               constexpr Long max_iter = 2000;
 
-              Vec3 y_;
+              Vec3 y_, dxds_;
               s_vec[0] = 0;
               Real dist_, dyds_, s_ = 0;
-              get_geom(y_, dist_, dyds_, s_, x_trg, x_trg);
+              get_geom(y_, dist_, dyds_, dxds_, s_, x_trg, x_trg);
               Real step_size = (2/(rho+1/rho))*(3*dist_/std::max<Real>(dyds_,dx_max));
               for (Long iter = 0; iter < max_iter; iter++) {
-                Vec3 y;
+                Vec3 y, dxds;
                 Real dist, dyds;
                 const Real s = std::min<Real>(1, s_+step_size);
-                const Real panel_len = get_geom(y, dist, dyds, s, x_trg, y_);
-                if (dist+dist_ > ((rho+1/rho)/2) * std::max<Real>(std::max<Real>(dx_max,std::max<Real>(dyds,dyds_))*(s-s_), panel_len)) {
+                const Real panel_len = get_geom(y, dist, dyds, dxds, s, x_trg, y_);
+                const Real L = std::max<Real>(std::max<Real>(dx_max,std::max<Real>(dyds,dyds_))*(s-s_), panel_len);
+                if (dist+dist_ > ((rho+1/rho)/2) * L) {
+                  { // Set n_vec[Npanel]: for the panel's own rho, at most 3 rho, smaller when the target is on the outside of the panel's bend (there the singularities come closer than for a straight panel)
+                    const Real a = (dist+dist_)/L;
+                    const Real rho_panel = std::min<Real>(a + sqrt<Real>(a*a-1), 3*rho);
+                    const Vec3 b = dxds*(1/sqrt<Real>(dot_prod(dxds,dxds))) - dxds_*(1/sqrt<Real>(dot_prod(dxds_,dxds_))); // |b| = 2 sin(bend/2), toward the centre of curvature
+                    const Vec3 y_sum = y + y_; // from the target toward the panel
+                    const Real y_sum_2 = dot_prod(y_sum, y_sum);
+                    const Real bend = (sqrt<Real>(dot_prod(b,b)) + (y_sum_2 > 0 ? dot_prod(b,y_sum)/sqrt<Real>(y_sum_2) : 0))/2; // |b| for a target outside the bend, 0 inside
+                    n_vec[Npanel] = std::min<Integer>(panel_order((double)(rho_panel/(1+bend_coeff*bend))), LegQuadOrder); // LegQuadOrder sizes the buffers; rounding at the acceptance threshold can give one point more
+                  }
                   Npanel++;
                   SCTL_ASSERT(Npanel <= MaxPanels);
                   s_vec[Npanel] = s;
 
                   s_ = s;
                   y_ = y;
+                  dxds_ = dxds;
                   dist_ = dist;
                   dyds_ = dyds;
                   step_size = (2/(rho+1/rho))*(3*dist_/std::max<Real>(dyds_,dx_max));
                 } else {
-                  step_size = (s-s_) * std::max<Real>(0.5, 0.9 * (dist+dist_)*(2/(rho+1/rho))/std::max<Real>(std::max<Real>(dx_max,std::max<Real>(dyds,dyds_))*(s-s_), panel_len));
+                  step_size = (s-s_) * std::max<Real>(0.5, 0.9 * (dist+dist_)*(2/(rho+1/rho))/L);
                 }
                 if (s_ == 1) {
                   //if (1) { // display iteration count
@@ -2972,13 +2754,17 @@ namespace sctl {
               }
             }
 
-            const Long N = Npanel * LegQuadOrder;
+            ScratchBuf<Long> n_dsp(MaxPanels+1);
+            n_dsp[0] = 0;
+            std::inclusive_scan(n_vec.begin(), n_vec.begin()+Npanel, n_dsp.begin()+1);
+            const Long N = n_dsp[Npanel];
             quad_nds.ReInit(N, quad_nds_buf.begin(), false);
             quad_wts.ReInit(N, quad_wts_buf.begin(), false);
             for (Long j = 0; j < Npanel; j++) { // Set quad_nds, quad_wts
-              for (Long k = 0; k < LegQuadOrder; k++) {
-                quad_nds[j*LegQuadOrder+k] = s_vec[j] + (s_vec[j+1]-s_vec[j]) * leg_nds[k];
-                quad_wts[j*LegQuadOrder+k] = (s_vec[j+1]-s_vec[j]) * leg_wts[k];
+              const auto& panel_rule = LegendreQuadRule<Real>(n_vec[j]);
+              for (Long k = 0; k < n_vec[j]; k++) {
+                quad_nds[n_dsp[j]+k] = s_vec[j] + (s_vec[j+1]-s_vec[j]) * panel_rule.first[k];
+                quad_wts[n_dsp[j]+k] = (s_vec[j+1]-s_vec[j]) * panel_rule.second[k];
               }
             }
           }
