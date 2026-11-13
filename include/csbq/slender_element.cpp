@@ -2299,6 +2299,32 @@ namespace sctl {
       GetGeom((X==nullptr?nullptr:&X_), (Xn==nullptr?nullptr:&Xn_), nullptr,nullptr,nullptr, CenterlineNodes(cheb_order[i]), sin_theta<Real>(fourier_order[i]), cos_theta<Real>(fourier_order[i]), i);
     }
   }
+  namespace detail_far_field {
+    /**
+     * The matrix that interpolates from the ElemOrder Chebyshev nodes of an element to its ElemOrder*Upsample
+     * Gauss-Legendre far-field nodes, or its transpose; for ElemOrder < 50/Upsample.
+     */
+    template <class Real, Integer Upsample> static const Matrix<Real>& ChebUpsample(const Integer ElemOrder, const bool transpose = false) {
+      constexpr Integer MaxOrderCheb = 50/Upsample;
+      static const Vector<Matrix<Real>> M_lst = []() {
+        Vector<Matrix<Real>> M(MaxOrderCheb);
+        for (Integer k = 0; k < MaxOrderCheb; k++) {
+          Matrix<Real> Minterp(k, k*Upsample);
+          Vector<Real> Vinterp(k*k*Upsample, Minterp.begin(), false);
+          LagrangeInterp<Real>::Interpolate(Vinterp, SlenderElemList<Real>::CenterlineNodes(k), LegendreQuadRule<Real>(k*Upsample).first);
+          M[k] = Minterp;
+        }
+        return M;
+      }();
+      static const Vector<Matrix<Real>> Mt_lst = []() {
+        Vector<Matrix<Real>> Mt(MaxOrderCheb);
+        for (Integer k = 0; k < MaxOrderCheb; k++) Mt[k] = M_lst[k].Transpose();
+        return Mt;
+      }();
+      SCTL_ASSERT(ElemOrder < MaxOrderCheb);
+      return (transpose ? Mt_lst[ElemOrder] : M_lst[ElemOrder]);
+    }
+  }
   template <class Real> void SlenderElemList<Real>::GetFarFieldNodes(Vector<Real>& X, Vector<Real>& Xn, Vector<Real>& wts, Vector<Real>& dist_far, Vector<Long>& element_wise_node_cnt, const Real tol) const {
     const Long Nelem = cheb_order.Dim();
     Vector<Long> node_cnt(Nelem), node_dsp(Nelem);
@@ -2348,6 +2374,29 @@ namespace sctl {
       }
       const Real dist_far_trapezoidal = (pow<Real>(4*const_pi<Real>()/tol+1, 1/(Real)(FourierOrder*FARFIELD_UPSAMPLE)) - 1); // from theorem 2.2 in doi:10.1137/130932132
 
+      { // Set dist_far_gauss *= (exp(k d)-1)/(k d), k = angle the centerline turns per unit s (the near region of a circular arc reaches (exp(k d)-1)/k outside the bend)
+        const Long Ngauss = ElemOrder*FARFIELD_UPSAMPLE;
+        const Matrix<Real>& Minterp = detail_far_field::ChebUpsample<Real,FARFIELD_UPSAMPLE>(ElemOrder);
+        ScratchBuf<Real> buf(2*COORD_DIM*Ngauss);
+        Matrix<Real> dx_gauss(COORD_DIM, Ngauss, buf.begin(), false);
+        Matrix<Real> d2x_gauss(COORD_DIM, Ngauss, buf.begin() + COORD_DIM*Ngauss, false);
+        Matrix<Real>::GEMM( dx_gauss, Matrix<Real>(COORD_DIM, ElemOrder, (Iterator<Real>) dx.begin()+COORD_DIM*elem_dsp[elem_idx], false), Minterp);
+        Matrix<Real>::GEMM(d2x_gauss, Matrix<Real>(COORD_DIM, ElemOrder, (Iterator<Real>)d2x.begin()+COORD_DIM*elem_dsp[elem_idx], false), Minterp);
+        for (Long i = 0; i < Ngauss; i++) {
+          using Vec3 = Tensor<Real,true,COORD_DIM,1>;
+          Vec3 dx_i, d2x_i;
+          for (Integer k = 0; k < COORD_DIM; k++) {
+            dx_i(k,0) = dx_gauss[k][i];
+            d2x_i(k,0) = d2x_gauss[k][i];
+          }
+          const Vec3 dx_d2x = cross_prod(dx_i, d2x_i);
+          const Real dx2 = dot_prod(dx_i, dx_i);
+          const Real curvature = sqrt<Real>(dot_prod(dx_d2x, dx_d2x)/(dx2*dx2));
+          const double kd = (double)(curvature * dist_far_gauss[i]);
+          if (kd > 0) dist_far_gauss[i] *= (Real)(std::expm1(kd)/kd);
+        }
+      }
+
       const Real theta_quad_wt = 2*const_pi<Real>()/(FourierOrder*FARFIELD_UPSAMPLE);
       for (Long i = 0; i < ElemOrder*FARFIELD_UPSAMPLE; i++) { // Set wts *= leg_wts * theta_quad_wt
         Real quad_wt = leg_wts[i] * theta_quad_wt;
@@ -2367,7 +2416,6 @@ namespace sctl {
   }
   template <class Real> void SlenderElemList<Real>::GetFarFieldDensity(Vector<Real>& Fout, const Vector<Real>& Fin) const {
     constexpr Integer MaxOrderFourier = 128/FARFIELD_UPSAMPLE;
-    constexpr Integer MaxOrderCheb = 50/FARFIELD_UPSAMPLE;
     auto compute_Mfourier_upsample_transpose = [MaxOrderFourier]() {
       Vector<Matrix<Real>> M_lst(MaxOrderFourier);
       for (Long k = 1; k < MaxOrderFourier; k++) {
@@ -2379,19 +2427,7 @@ namespace sctl {
       }
       return M_lst;
     };
-    auto compute_Mcheb_upsample_transpose = [MaxOrderCheb]() {
-      Vector<Matrix<Real>> M_lst(MaxOrderCheb);
-      for (Long k = 0; k < MaxOrderCheb; k++) {
-        const Integer ElemOrder = k;
-        Matrix<Real> Minterp(ElemOrder, ElemOrder*FARFIELD_UPSAMPLE);
-        Vector<Real> Vinterp(ElemOrder*ElemOrder*FARFIELD_UPSAMPLE, Minterp.begin(), false);
-        LagrangeInterp<Real>::Interpolate(Vinterp, CenterlineNodes(ElemOrder), LegendreQuadRule<Real>(ElemOrder*FARFIELD_UPSAMPLE).first);
-        M_lst[k] = Minterp.Transpose();
-      }
-      return M_lst;
-    };
     static const Vector<Matrix<Real>> Mfourier_transpose = compute_Mfourier_upsample_transpose();
-    static const Vector<Matrix<Real>> Mcheb_transpose = compute_Mcheb_upsample_transpose();
 
     const Long Nelem = cheb_order.Dim();
     Vector<Long> node_cnt(Nelem), node_dsp(Nelem);
@@ -2434,12 +2470,11 @@ namespace sctl {
       const auto& F0_ = (Mfourier_.Dim(0) && Mfourier_.Dim(1) ? F0 : Fin_);
 
       Matrix<Real> Fout_(ElemOrder*FARFIELD_UPSAMPLE, FourierOrder*FARFIELD_UPSAMPLE*density_dof, Fout.begin()+node_dsp[i]*FARFIELD_UPSAMPLE*FARFIELD_UPSAMPLE*density_dof, false);
-      Matrix<Real>::GEMM(Fout_, Mcheb_transpose[ElemOrder], F0_);
+      Matrix<Real>::GEMM(Fout_, detail_far_field::ChebUpsample<Real,FARFIELD_UPSAMPLE>(ElemOrder, true), F0_);
     }
   }
   template <class Real> void SlenderElemList<Real>::FarFieldDensityOperatorTranspose(Matrix<Real>& Mout, const Matrix<Real>& Min, const Long elem_idx) const {
     constexpr Integer MaxOrderFourier = 128/FARFIELD_UPSAMPLE;
-    constexpr Integer MaxOrderCheb = 50/FARFIELD_UPSAMPLE;
     auto compute_Mfourier_upsample = [MaxOrderFourier]() {
       Vector<Matrix<Real>> M_lst(MaxOrderFourier);
       for (Long k = 1; k < MaxOrderFourier; k++) {
@@ -2451,19 +2486,7 @@ namespace sctl {
       }
       return M_lst;
     };
-    auto compute_Mcheb_upsample = [MaxOrderCheb]() {
-      Vector<Matrix<Real>> M_lst(MaxOrderCheb);
-      for (Long k = 0; k < MaxOrderCheb; k++) {
-        const Integer ElemOrder = k;
-        Matrix<Real> Minterp(ElemOrder, ElemOrder*FARFIELD_UPSAMPLE);
-        Vector<Real> Vinterp(ElemOrder*ElemOrder*FARFIELD_UPSAMPLE, Minterp.begin(), false);
-        LagrangeInterp<Real>::Interpolate(Vinterp, CenterlineNodes(ElemOrder), LegendreQuadRule<Real>(ElemOrder*FARFIELD_UPSAMPLE).first);
-        M_lst[k] = Minterp;
-      }
-      return M_lst;
-    };
     static const Vector<Matrix<Real>> Mfourier = compute_Mfourier_upsample();
-    static const Vector<Matrix<Real>> Mcheb = compute_Mcheb_upsample();
 
     const Integer ElemOrder = cheb_order[elem_idx];
     const Integer FourierOrder = fourier_order[elem_idx];
@@ -2496,7 +2519,7 @@ namespace sctl {
     }
 
     Matrix<Real> Mout_(ElemOrder, FourierOrder*density_dof*N, Mout.begin(), false);
-    Matrix<Real>::GEMM(Mout_, Mcheb[ElemOrder], Mtmp);
+    Matrix<Real>::GEMM(Mout_, detail_far_field::ChebUpsample<Real,FARFIELD_UPSAMPLE>(ElemOrder), Mtmp);
   }
 
   namespace detail_interac {
