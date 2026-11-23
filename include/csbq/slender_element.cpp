@@ -2290,7 +2290,7 @@ namespace sctl {
 
   template <class Real> void SlenderElemList<Real>::GetNodeCoord(Vector<Real>* X, Vector<Real>* Xn, Vector<Long>* element_wise_node_cnt) const {
     const Long Nelem = cheb_order.Dim();
-    Vector<Long> node_cnt(Nelem), node_dsp(Nelem);
+    ScratchBuf<Long> node_cnt(Nelem), node_dsp(Nelem);
     { // Set node_cnt, node_dsp
       for (Long i = 0; i < Nelem; i++) {
         node_cnt[i] = cheb_order[i] * fourier_order[i];
@@ -2300,7 +2300,10 @@ namespace sctl {
     }
 
     const Long Nnodes = (Nelem ? node_dsp[Nelem-1]+node_cnt[Nelem-1] : 0);
-    if (element_wise_node_cnt) (*element_wise_node_cnt) = node_cnt;
+    if (element_wise_node_cnt) {
+      if (element_wise_node_cnt->Dim() != Nelem) element_wise_node_cnt->ReInit(Nelem);
+      std::copy(node_cnt.begin(), node_cnt.end(), element_wise_node_cnt->begin());
+    }
     if (X  != nullptr && X ->Dim() != Nnodes*COORD_DIM) X ->ReInit(Nnodes*COORD_DIM);
     if (Xn != nullptr && Xn->Dim() != Nnodes*COORD_DIM) Xn->ReInit(Nnodes*COORD_DIM);
     for (Long i = 0; i < Nelem; i++) {
@@ -2338,7 +2341,9 @@ namespace sctl {
   }
   template <class Real> void SlenderElemList<Real>::GetFarFieldNodes(Vector<Real>& X, Vector<Real>& Xn, Vector<Real>& wts, Vector<Real>& dist_far, Vector<Long>& element_wise_node_cnt, const Real tol) const {
     const Long Nelem = cheb_order.Dim();
-    Vector<Long> node_cnt(Nelem), node_dsp(Nelem);
+    if (element_wise_node_cnt.Dim() != Nelem) element_wise_node_cnt.ReInit(Nelem);
+    Vector<Long>& node_cnt = element_wise_node_cnt;
+    ScratchBuf<Long> node_dsp(Nelem);
     { // Set node_cnt, node_dsp
       for (Long i = 0; i < Nelem; i++) {
         node_cnt[i] = cheb_order[i]*FARFIELD_UPSAMPLE * fourier_order[i]*FARFIELD_UPSAMPLE;
@@ -2347,7 +2352,6 @@ namespace sctl {
       omp_par::scan(node_cnt.begin(), node_dsp.begin(), Nelem);
     }
 
-    element_wise_node_cnt = node_cnt;
     const Long Nnodes = (Nelem ? node_dsp[Nelem-1]+node_cnt[Nelem-1] : 0);
     if (X       .Dim() != Nnodes*COORD_DIM) X       .ReInit(Nnodes*COORD_DIM);
     if (Xn      .Dim() != Nnodes*COORD_DIM) Xn      .ReInit(Nnodes*COORD_DIM);
@@ -2576,12 +2580,12 @@ namespace sctl {
     if (trg_dot_prod) {
       #pragma omp parallel for //schedule(static)
       for (Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
-        detail_interac::DigitsDispatch(tol, [&M_lst,&elem_lst,&ker,elem_idx](auto digits) { M_lst[elem_idx] = elem_lst.template SelfInteracHelper<decltype(digits)::value,true,Kernel>(ker, elem_idx); });
+        detail_interac::DigitsDispatch(tol, [&M_lst,&elem_lst,&ker,elem_idx](auto digits) { elem_lst.template SelfInteracHelper<decltype(digits)::value,true,Kernel>(M_lst[elem_idx], ker, elem_idx); });
       }
     } else {
       #pragma omp parallel for //schedule(static)
       for (Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
-        detail_interac::DigitsDispatch(tol, [&M_lst,&elem_lst,&ker,elem_idx](auto digits) { M_lst[elem_idx] = elem_lst.template SelfInteracHelper<decltype(digits)::value,false,Kernel>(ker, elem_idx); });
+        detail_interac::DigitsDispatch(tol, [&M_lst,&elem_lst,&ker,elem_idx](auto digits) { elem_lst.template SelfInteracHelper<decltype(digits)::value,false,Kernel>(M_lst[elem_idx], ker, elem_idx); });
       }
     }
   }
@@ -3303,25 +3307,24 @@ namespace sctl {
     if (dX_ds && dX_ds->Dim() != N*COORD_DIM) dX_ds->ReInit(N*COORD_DIM);
     if (dX_dt && dX_dt->Dim() != N*COORD_DIM) dX_dt->ReInit(N*COORD_DIM);
 
-    Matrix<Real> M_lagrange_interp;
+    ScratchBuf<Real> buf((ElemOrder + 4*COORD_DIM + 2) * Ns);
+    Matrix<Real> M_lagrange_interp(ElemOrder, Ns, buf.begin(), false);
     { // Set M_lagrange_interp
-      M_lagrange_interp.ReInit(ElemOrder, Ns);
       Vector<Real> V_lagrange_interp(ElemOrder*Ns, M_lagrange_interp.begin(), false);
       LagrangeInterp<Real>::Interpolate(V_lagrange_interp, CenterlineNodes(ElemOrder), s_param);
     }
 
-    Matrix<Real> r_, dr_, x_, dx_, d2x_, e1_;
-    r_  .ReInit(        1,Ns);
-    x_  .ReInit(COORD_DIM,Ns);
-    dx_ .ReInit(COORD_DIM,Ns);
-    e1_ .ReInit(COORD_DIM,Ns);
+    Matrix<Real>   x_(COORD_DIM, Ns, buf.begin() + (ElemOrder + 0*COORD_DIM    ) * Ns, false);
+    Matrix<Real>  dx_(COORD_DIM, Ns, buf.begin() + (ElemOrder + 1*COORD_DIM    ) * Ns, false);
+    Matrix<Real> d2x_(COORD_DIM, Ns, buf.begin() + (ElemOrder + 2*COORD_DIM    ) * Ns, false);
+    Matrix<Real>  e1_(COORD_DIM, Ns, buf.begin() + (ElemOrder + 3*COORD_DIM    ) * Ns, false);
+    Matrix<Real>   r_(        1, Ns, buf.begin() + (ElemOrder + 4*COORD_DIM    ) * Ns, false);
+    Matrix<Real>  dr_(        1, Ns, buf.begin() + (ElemOrder + 4*COORD_DIM + 1) * Ns, false);
     Matrix<Real>::GEMM(  x_, Matrix<Real>(COORD_DIM,ElemOrder,(Iterator<Real>) coord.begin()+COORD_DIM*elem_dsp[elem_idx],false), M_lagrange_interp);
     Matrix<Real>::GEMM( dx_, Matrix<Real>(COORD_DIM,ElemOrder,(Iterator<Real>)    dx.begin()+COORD_DIM*elem_dsp[elem_idx],false), M_lagrange_interp);
     Matrix<Real>::GEMM(  r_, Matrix<Real>(        1,ElemOrder,(Iterator<Real>)radius.begin()+          elem_dsp[elem_idx],false), M_lagrange_interp);
     Matrix<Real>::GEMM( e1_, Matrix<Real>(COORD_DIM,ElemOrder,(Iterator<Real>)    e1.begin()+COORD_DIM*elem_dsp[elem_idx],false), M_lagrange_interp);
     if (Xn || Xa || dX_ds || dX_dt) { // Set dr_, d2x_
-      dr_ .ReInit(        1,Ns);
-      d2x_.ReInit(COORD_DIM,Ns);
       Matrix<Real>::GEMM(d2x_, Matrix<Real>(COORD_DIM,ElemOrder,(Iterator<Real>)   d2x.begin()+COORD_DIM*elem_dsp[elem_idx],false), M_lagrange_interp);
       Matrix<Real>::GEMM( dr_, Matrix<Real>(        1,ElemOrder,(Iterator<Real>)    dr.begin()+          elem_dsp[elem_idx],false), M_lagrange_interp);
     }
@@ -3401,7 +3404,7 @@ namespace sctl {
     }
   }
 
-  template <class Real> template <Integer digits, bool trg_dot_prod, class Kernel> Matrix<Real> SlenderElemList<Real>::SelfInteracHelper(const Kernel& ker, const Long elem_idx) const {
+  template <class Real> template <Integer digits, bool trg_dot_prod, class Kernel> void SlenderElemList<Real>::SelfInteracHelper(Matrix<Real>& M, const Kernel& ker, const Long elem_idx) const {
     using Vec3 = Tensor<Real,true,COORD_DIM,1>;
     static constexpr Integer KDIM0 = Kernel::SrcDim();
     static constexpr Integer KDIM1 = Kernel::TrgDim()/(trg_dot_prod?COORD_DIM:1);
@@ -3556,7 +3559,7 @@ namespace sctl {
       Matrix<Real>::GEMM(M_nodal_, M_modal_, M_fourier_inv);
     }
 
-    Matrix<Real> M(ElemOrder*FourierOrder*KDIM0, ElemOrder*FourierOrder*KDIM1); // TODO: pass M by reference
+    if (M.Dim(0) != ElemOrder*FourierOrder*KDIM0 || M.Dim(1) != ElemOrder*FourierOrder*KDIM1) M.ReInit(ElemOrder*FourierOrder*KDIM0, ElemOrder*FourierOrder*KDIM1);
     { // Set M
       const Integer Nnds = ElemOrder*FourierOrder;
       for (Integer i = 0; i < Nnds; i++) {
@@ -3571,7 +3574,6 @@ namespace sctl {
         }
       }
     }
-    return M;
   }
 
   template <class Real> template <class ValueType> void SlenderElemList<Real>::Copy(SlenderElemList<ValueType>& elem_lst) const {
