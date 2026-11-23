@@ -147,7 +147,7 @@ namespace sctl {
      * @param A The operator to apply for one object in the reference geometry.
      * @param ref_geom The reference geometry.
      */
-    void ApplyPrecond(Vector<Real>& Ax0, const Vector<Real> x0, const Matrix<Real>& A, const RigidBodyList<Real>& ref_geom) const;
+    void ApplyPrecond(Vector<Real>& Ax0, const Vector<Real>& x0, const Matrix<Real>& A, const RigidBodyList<Real>& ref_geom) const;
 
     /**
      * @brief Get the minimum separation between the rigid objects.
@@ -171,9 +171,21 @@ namespace sctl {
 
     static void InitGeom(Vector<Real>& X, Vector<Real>& R, Vector<Real>& OrientVec, Vector<Long>& ElemOrder, Vector<Long>& FourierOrder, Vector<Real>& panel_len, Vector<Real>& Mr_lst, Vector<Long>& cnt, Vector<Long>& dsp, const Long Nobj, const Real loop_rad, const Geom& geom_type);
 
-    static void SlenderElemIntegral(Vector<Real>& IntegralF, const Vector<Real>& F_cheb, const SlenderElemList<Real>& elem_lst);
-
+    /**
+     * Integral of a density (given at the surface discretization nodes) over the surface of each object.
+     */
     static void ObjIntegral(Vector<Real>& IntegralF, const Vector<Real>& F_cheb, const SlenderElemList<Real>& elem_lst, const Vector<Long>& obj_elem_cnt, const Vector<Long>& obj_elem_dsp, const Comm comm);
+
+    /**
+     * ObjIntegral with the number of local surface nodes (Nnodes_loc), the far-field quadrature weights (far_wts) and
+     * their count for each local element (far_cnt) given.
+     */
+    static void ObjIntegral(Vector<Real>& IntegralF, const Vector<Real>& F_cheb, const SlenderElemList<Real>& elem_lst, const Long Nnodes_loc, const Vector<Real>& far_wts, const Vector<Long>& far_cnt, const Vector<Long>& obj_elem_cnt, const Vector<Long>& obj_elem_dsp, const Comm comm);
+
+    /**
+     * ObjIntegral over the objects of this list, with the stored far-field quadrature weights.
+     */
+    void ObjIntegral(Vector<Real>& IntegralF, const Vector<Real>& F_cheb) const;
 
     template <class ValueType> static void InitElemList(Long& loc_elem_cnt, Long& loc_elem_dsp, SlenderElemList<Real>& elem_lst, const Vector<Long>& ElemOrder, const Vector<Long>& FourierOrder, const Vector<ValueType>& X, const Vector<ValueType>& R, const Vector<ValueType>& OrientVec, const Comm comm);
 
@@ -185,10 +197,15 @@ namespace sctl {
     static void GetNodeObjIdx(Vector<Long>& node_obj_idx, const SlenderElemList<Real>& elem_lst, const Vector<Long>& obj_elem_cnt, const Vector<Long>& obj_elem_dsp, const Comm comm);
 
     /**
-     * Returns the rigid body rotation velocities corresponding to given
-     * translational and rotational velocities.
+     * Returns the rigid body velocity at each node (position X, on object node_obj_idx) corresponding to given
+     * translational and rotational velocities of each object.
      */
-    static void RigidBodyVelocity(Vector<Real>& U, const Vector<Real> Uobj, const Vector<Real> Omega_obj, const Vector<Real> Xc, const SlenderElemList<Real>& elem_lst, const Vector<Long>& obj_elem_cnt, const Vector<Long>& obj_elem_dsp, const Comm comm);
+    static void RigidBodyVelocity(Vector<Real>& U, const Vector<Real>& Uobj, const Vector<Real>& Omega_obj, const Vector<Real>& Xc, const Vector<Real>& X, const Vector<Long>& node_obj_idx);
+
+    /**
+     * Sets far_wts, far_cnt, node_obj_idx and rbm_basis from the current geometry (elem_lst and Xc).
+     */
+    void InitRigidBodyBasis();
 
     Comm comm_;
     Vector<Long> obj_elem_cnt, obj_elem_dsp; // panel count for each object (global)
@@ -201,6 +218,12 @@ namespace sctl {
 
     Long loc_elem_cnt, loc_elem_dsp; // local element count and displacement
     SlenderElemList<Real> elem_lst;
+
+    Vector<Real> far_wts; // far-field quadrature weights (tolerance 1) at the local elements
+    Vector<Real> far_X, far_Xn, far_dist; // the other outputs of GetFarFieldNodes, not used; kept so that their storage is reused
+    Vector<Long> far_cnt; // number of far-field quadrature nodes of each local element
+    Vector<Long> node_obj_idx; // object index of each local surface node
+    Matrix<Real> rbm_basis; // rigid body motions at local surface nodes (2*COORD_DIM x Nnodes_loc*COORD_DIM), orthonormal on each object
   };
 
   /**
@@ -253,6 +276,11 @@ namespace sctl {
     Vector<Real> ComputeVelocity(const RigidBodyList<Real>& geom, const Vector<Real>& Ubg, const Real tol = 1e-8, const Real quad_tol = 1e-14, Vector<Real>* q = nullptr, Long* Ngmres = nullptr) const;
 
     /**
+     * @brief Solve the mobility problem as above, writing the velocity into U (resized only if its size differs).
+     */
+    void ComputeVelocity(Vector<Real>& U, const RigidBodyList<Real>& geom, const Vector<Real>& Ubg, const Real tol = 1e-8, const Real quad_tol = 1e-14, Vector<Real>* q = nullptr, Long* Ngmres = nullptr) const;
+
+    /**
      * @brief Compute one timestep.
      *
      * @tparam BgFlow The type of the background velocity field functor.
@@ -292,7 +320,7 @@ namespace sctl {
 
     private:
 
-    Vector<Real> ApplyPrecond(const Vector<Real>& x, const RigidBodyList<Real>& geom) const;
+    void ApplyPrecond(Vector<Real>& Ax, const Vector<Real>& x, const RigidBodyList<Real>& geom) const;
 
     const Comm comm_;
     const Stokes3D_FxU ker_FxU;
@@ -300,6 +328,7 @@ namespace sctl {
     const Stokes3D_DxU ker_DxU;
     const Stokes3D_FxUP ker_FxUP;
     const Stokes3D_FSxU ker_FSxU;
+    // BIOp_StokesFxU and BIOp_StokesDxU hold the element list of the last solve, so that its storage is reused
     mutable BoundaryIntegralOp<Real,Stokes3D_FxU> BIOp_StokesFxU;
     mutable BoundaryIntegralOp<Real,Stokes3D_FxT> BIOp_StokesFxT;
     mutable BoundaryIntegralOp<Real,Stokes3D_DxU> BIOp_StokesDxU;
@@ -308,6 +337,15 @@ namespace sctl {
     mutable Real SL_scal, DL_scal;
     mutable Matrix<Real> Mprecond;
     mutable RigidBodyList<Real> geom_precond;
+    mutable RigidBodyList<Real> geom_stage; // geometry at an SDC node, kept so that its storage is reused
+    mutable RigidBodyList<Real> geom_step; // geometry advanced by one time step, kept so that its storage is reused
+
+    struct SolveWork { // arrays of one mobility solve: node coordinates, node velocity, density, object velocities
+      Vector<Real> X, U, sigma, Uc, Omega;
+    };
+    mutable SolveWork stage_work; // solve arrays for the geometry at an SDC node, kept so that their storage is reused
+    mutable SolveWork step_work; // solve arrays for the geometry at the start of a time step, kept so that their storage is reused
+    mutable Vector<Real> gmres_q; // GMRES solution of the last mobility solve (scaled density), kept so that its storage is reused
   };
 
 }

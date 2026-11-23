@@ -2290,7 +2290,7 @@ namespace sctl {
 
   template <class Real> void SlenderElemList<Real>::GetNodeCoord(Vector<Real>* X, Vector<Real>* Xn, Vector<Long>* element_wise_node_cnt) const {
     const Long Nelem = cheb_order.Dim();
-    Vector<Long> node_cnt(Nelem), node_dsp(Nelem);
+    ScratchBuf<Long> node_cnt(Nelem), node_dsp(Nelem);
     { // Set node_cnt, node_dsp
       for (Long i = 0; i < Nelem; i++) {
         node_cnt[i] = cheb_order[i] * fourier_order[i];
@@ -2300,7 +2300,10 @@ namespace sctl {
     }
 
     const Long Nnodes = (Nelem ? node_dsp[Nelem-1]+node_cnt[Nelem-1] : 0);
-    if (element_wise_node_cnt) (*element_wise_node_cnt) = node_cnt;
+    if (element_wise_node_cnt) {
+      if (element_wise_node_cnt->Dim() != Nelem) element_wise_node_cnt->ReInit(Nelem);
+      std::copy(node_cnt.begin(), node_cnt.end(), element_wise_node_cnt->begin());
+    }
     if (X  != nullptr && X ->Dim() != Nnodes*COORD_DIM) X ->ReInit(Nnodes*COORD_DIM);
     if (Xn != nullptr && Xn->Dim() != Nnodes*COORD_DIM) Xn->ReInit(Nnodes*COORD_DIM);
     for (Long i = 0; i < Nelem; i++) {
@@ -2338,7 +2341,9 @@ namespace sctl {
   }
   template <class Real> void SlenderElemList<Real>::GetFarFieldNodes(Vector<Real>& X, Vector<Real>& Xn, Vector<Real>& wts, Vector<Real>& dist_far, Vector<Long>& element_wise_node_cnt, const Real tol) const {
     const Long Nelem = cheb_order.Dim();
-    Vector<Long> node_cnt(Nelem), node_dsp(Nelem);
+    if (element_wise_node_cnt.Dim() != Nelem) element_wise_node_cnt.ReInit(Nelem);
+    Vector<Long>& node_cnt = element_wise_node_cnt;
+    ScratchBuf<Long> node_dsp(Nelem);
     { // Set node_cnt, node_dsp
       for (Long i = 0; i < Nelem; i++) {
         node_cnt[i] = cheb_order[i]*FARFIELD_UPSAMPLE * fourier_order[i]*FARFIELD_UPSAMPLE;
@@ -2347,7 +2352,6 @@ namespace sctl {
       omp_par::scan(node_cnt.begin(), node_dsp.begin(), Nelem);
     }
 
-    element_wise_node_cnt = node_cnt;
     const Long Nnodes = (Nelem ? node_dsp[Nelem-1]+node_cnt[Nelem-1] : 0);
     if (X       .Dim() != Nnodes*COORD_DIM) X       .ReInit(Nnodes*COORD_DIM);
     if (Xn      .Dim() != Nnodes*COORD_DIM) Xn      .ReInit(Nnodes*COORD_DIM);
@@ -2441,10 +2445,13 @@ namespace sctl {
     static const Vector<Matrix<Real>> Mfourier_transpose = compute_Mfourier_upsample_transpose();
 
     const Long Nelem = cheb_order.Dim();
-    Vector<Long> node_cnt(Nelem), node_dsp(Nelem);
-    { // Set node_cnt, node_dsp
+    ScratchBuf<Long> node_cnt(Nelem), node_dsp(Nelem);
+    Long work = 0; // multiply-adds per density component
+    { // Set node_cnt, node_dsp, work
       for (Long i = 0; i < Nelem; i++) {
         node_cnt[i] = cheb_order[i] * fourier_order[i];
+        work += node_cnt[i] * FARFIELD_UPSAMPLE*FARFIELD_UPSAMPLE * cheb_order[i];
+        if (FARFIELD_UPSAMPLE != 1) work += node_cnt[i] * FARFIELD_UPSAMPLE * fourier_order[i];
       }
       if (Nelem) node_dsp[0] = 0;
       omp_par::scan(node_cnt.begin(), node_dsp.begin(), Nelem);
@@ -2457,32 +2464,26 @@ namespace sctl {
     if (Fout.Dim() != Nnodes*(FARFIELD_UPSAMPLE*FARFIELD_UPSAMPLE) * density_dof) {
       Fout.ReInit(Nnodes*(FARFIELD_UPSAMPLE*FARFIELD_UPSAMPLE) * density_dof);
     }
-    Matrix<Real> F0; // pre-allocate
-    for (Long i = 0; i < Nelem; i++) { // TODO: parallelize
+    auto elem_density = [this,&Fout,&Fin,&node_dsp,density_dof](const Long i) {
       const Integer ElemOrder = cheb_order[i];
       const Integer FourierOrder = fourier_order[i];
 
       const auto& Mfourier_ = Mfourier_transpose[FourierOrder];
       const Matrix<Real> Fin_(ElemOrder, FourierOrder*density_dof, (Iterator<Real>)Fin.begin()+node_dsp[i]*density_dof, false);
-      if (Mfourier_.Dim(0) && Mfourier_.Dim(1)) {
-        F0.ReInit(ElemOrder, FourierOrder*FARFIELD_UPSAMPLE*density_dof);
-        for (Long l = 0; l < ElemOrder; l++) { // Set F0
-          for (Long j0 = 0; j0 < FourierOrder*FARFIELD_UPSAMPLE; j0++) {
-            for (Long k = 0; k < density_dof; k++) {
-              Real f = 0;
-              for (Long j1 = 0; j1 < FourierOrder; j1++) {
-                f += Fin_[l][j1*density_dof+k] * Mfourier_[j0][j1];
-              }
-              F0[l][j0*density_dof+k] = f;
-            }
-          }
-        }
+      const bool upsample_fourier = (Mfourier_.Dim(0) && Mfourier_.Dim(1));
+      ScratchBuf<Real> F0_buf(upsample_fourier ? ElemOrder*FourierOrder*FARFIELD_UPSAMPLE*density_dof : 0);
+      Matrix<Real> F0((upsample_fourier ? ElemOrder : 0), FourierOrder*FARFIELD_UPSAMPLE*density_dof, F0_buf.begin(), false);
+      if (upsample_fourier) { // Set F0
+        const SmallGEMM<Real> gemm(false, FourierOrder*FARFIELD_UPSAMPLE, density_dof, FourierOrder);
+        for (Long l = 0; l < ElemOrder; l++) gemm(F0[l], Mfourier_.begin(), Fin_[l]);
       }
-      const auto& F0_ = (Mfourier_.Dim(0) && Mfourier_.Dim(1) ? F0 : Fin_);
+      const auto& F0_ = (upsample_fourier ? F0 : Fin_);
 
       Matrix<Real> Fout_(ElemOrder*FARFIELD_UPSAMPLE, FourierOrder*FARFIELD_UPSAMPLE*density_dof, Fout.begin()+node_dsp[i]*FARFIELD_UPSAMPLE*FARFIELD_UPSAMPLE*density_dof, false);
-      Matrix<Real>::GEMM(Fout_, detail_far_field::ChebUpsample<Real,FARFIELD_UPSAMPLE>(ElemOrder, true), F0_);
-    }
+      SmallGEMM<Real>(false, Fout_.Dim(0), Fout_.Dim(1), F0_.Dim(0))(Fout_, detail_far_field::ChebUpsample<Real,FARFIELD_UPSAMPLE>(ElemOrder, true), F0_);
+    };
+    constexpr Long ParallelWork = (Long)1 << 17; // below this, one thread took less time (48-core Genoa socket)
+    omp_par::parallel_for(Nelem, elem_density, false, work * density_dof > ParallelWork);
   }
   template <class Real> void SlenderElemList<Real>::FarFieldDensityOperatorTranspose(Matrix<Real>& Mout, const Matrix<Real>& Min, const Long elem_idx) const {
     constexpr Integer MaxOrderFourier = 128/FARFIELD_UPSAMPLE;
@@ -2510,23 +2511,16 @@ namespace sctl {
       Mout.SetZero();
     }
 
-    Matrix<Real> Mtmp(ElemOrder*FARFIELD_UPSAMPLE, FourierOrder*density_dof*N);
     const Matrix<Real> Min_(ElemOrder*FARFIELD_UPSAMPLE, FourierOrder*FARFIELD_UPSAMPLE*density_dof*N, (Iterator<Real>)Min.begin(), false);
-    if (FARFIELD_UPSAMPLE != 1) { // Appyl Mfourier // TODO: optimize
+    ScratchBuf<Real> Mtmp_buf(FARFIELD_UPSAMPLE != 1 ? ElemOrder*FARFIELD_UPSAMPLE*FourierOrder*density_dof*N : 0);
+    Matrix<Real> Mtmp(ElemOrder*FARFIELD_UPSAMPLE, FourierOrder*density_dof*N, (FARFIELD_UPSAMPLE != 1 ? Mtmp_buf.begin() : (Iterator<Real>)Min.begin()), false);
+    if (FARFIELD_UPSAMPLE != 1) { // Apply Mfourier
       const auto& Mfourier_ = Mfourier[FourierOrder];
       for (Long l = 0; l < ElemOrder*FARFIELD_UPSAMPLE; l++) {
-        for (Long j0 = 0; j0 < FourierOrder; j0++) {
-          for (Long k = 0; k < density_dof*N; k++) {
-            Real f_tmp = 0;
-            for (Long j1 = 0; j1 < FourierOrder*FARFIELD_UPSAMPLE; j1++) {
-              f_tmp += Min_[l][j1*density_dof*N+k] * Mfourier_[j0][j1];
-            }
-            Mtmp[l][j0*density_dof*N+k] = f_tmp;
-          }
-        }
+        const Matrix<Real> Min_l(FourierOrder*FARFIELD_UPSAMPLE, density_dof*N, (Iterator<Real>)Min_[l], false);
+        Matrix<Real> Mtmp_l(FourierOrder, density_dof*N, Mtmp[l], false);
+        Matrix<Real>::GEMM(Mtmp_l, Mfourier_, Min_l);
       }
-    }else{
-      Mtmp.ReInit(ElemOrder*FARFIELD_UPSAMPLE, FourierOrder*density_dof*N, (Iterator<Real>)Min.begin(), false);
     }
 
     Matrix<Real> Mout_(ElemOrder, FourierOrder*density_dof*N, Mout.begin(), false);
@@ -2576,12 +2570,12 @@ namespace sctl {
     if (trg_dot_prod) {
       #pragma omp parallel for //schedule(static)
       for (Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
-        detail_interac::DigitsDispatch(tol, [&M_lst,&elem_lst,&ker,elem_idx](auto digits) { M_lst[elem_idx] = elem_lst.template SelfInteracHelper<decltype(digits)::value,true,Kernel>(ker, elem_idx); });
+        detail_interac::DigitsDispatch(tol, [&M_lst,&elem_lst,&ker,elem_idx](auto digits) { elem_lst.template SelfInteracHelper<decltype(digits)::value,true,Kernel>(M_lst[elem_idx], ker, elem_idx); });
       }
     } else {
       #pragma omp parallel for //schedule(static)
       for (Long elem_idx = 0; elem_idx < Nelem; elem_idx++) {
-        detail_interac::DigitsDispatch(tol, [&M_lst,&elem_lst,&ker,elem_idx](auto digits) { M_lst[elem_idx] = elem_lst.template SelfInteracHelper<decltype(digits)::value,false,Kernel>(ker, elem_idx); });
+        detail_interac::DigitsDispatch(tol, [&M_lst,&elem_lst,&ker,elem_idx](auto digits) { elem_lst.template SelfInteracHelper<decltype(digits)::value,false,Kernel>(M_lst[elem_idx], ker, elem_idx); });
       }
     }
   }
@@ -3303,25 +3297,24 @@ namespace sctl {
     if (dX_ds && dX_ds->Dim() != N*COORD_DIM) dX_ds->ReInit(N*COORD_DIM);
     if (dX_dt && dX_dt->Dim() != N*COORD_DIM) dX_dt->ReInit(N*COORD_DIM);
 
-    Matrix<Real> M_lagrange_interp;
+    ScratchBuf<Real> buf((ElemOrder + 4*COORD_DIM + 2) * Ns);
+    Matrix<Real> M_lagrange_interp(ElemOrder, Ns, buf.begin(), false);
     { // Set M_lagrange_interp
-      M_lagrange_interp.ReInit(ElemOrder, Ns);
       Vector<Real> V_lagrange_interp(ElemOrder*Ns, M_lagrange_interp.begin(), false);
       LagrangeInterp<Real>::Interpolate(V_lagrange_interp, CenterlineNodes(ElemOrder), s_param);
     }
 
-    Matrix<Real> r_, dr_, x_, dx_, d2x_, e1_;
-    r_  .ReInit(        1,Ns);
-    x_  .ReInit(COORD_DIM,Ns);
-    dx_ .ReInit(COORD_DIM,Ns);
-    e1_ .ReInit(COORD_DIM,Ns);
+    Matrix<Real>   x_(COORD_DIM, Ns, buf.begin() + (ElemOrder + 0*COORD_DIM    ) * Ns, false);
+    Matrix<Real>  dx_(COORD_DIM, Ns, buf.begin() + (ElemOrder + 1*COORD_DIM    ) * Ns, false);
+    Matrix<Real> d2x_(COORD_DIM, Ns, buf.begin() + (ElemOrder + 2*COORD_DIM    ) * Ns, false);
+    Matrix<Real>  e1_(COORD_DIM, Ns, buf.begin() + (ElemOrder + 3*COORD_DIM    ) * Ns, false);
+    Matrix<Real>   r_(        1, Ns, buf.begin() + (ElemOrder + 4*COORD_DIM    ) * Ns, false);
+    Matrix<Real>  dr_(        1, Ns, buf.begin() + (ElemOrder + 4*COORD_DIM + 1) * Ns, false);
     Matrix<Real>::GEMM(  x_, Matrix<Real>(COORD_DIM,ElemOrder,(Iterator<Real>) coord.begin()+COORD_DIM*elem_dsp[elem_idx],false), M_lagrange_interp);
     Matrix<Real>::GEMM( dx_, Matrix<Real>(COORD_DIM,ElemOrder,(Iterator<Real>)    dx.begin()+COORD_DIM*elem_dsp[elem_idx],false), M_lagrange_interp);
     Matrix<Real>::GEMM(  r_, Matrix<Real>(        1,ElemOrder,(Iterator<Real>)radius.begin()+          elem_dsp[elem_idx],false), M_lagrange_interp);
     Matrix<Real>::GEMM( e1_, Matrix<Real>(COORD_DIM,ElemOrder,(Iterator<Real>)    e1.begin()+COORD_DIM*elem_dsp[elem_idx],false), M_lagrange_interp);
     if (Xn || Xa || dX_ds || dX_dt) { // Set dr_, d2x_
-      dr_ .ReInit(        1,Ns);
-      d2x_.ReInit(COORD_DIM,Ns);
       Matrix<Real>::GEMM(d2x_, Matrix<Real>(COORD_DIM,ElemOrder,(Iterator<Real>)   d2x.begin()+COORD_DIM*elem_dsp[elem_idx],false), M_lagrange_interp);
       Matrix<Real>::GEMM( dr_, Matrix<Real>(        1,ElemOrder,(Iterator<Real>)    dr.begin()+          elem_dsp[elem_idx],false), M_lagrange_interp);
     }
@@ -3401,7 +3394,7 @@ namespace sctl {
     }
   }
 
-  template <class Real> template <Integer digits, bool trg_dot_prod, class Kernel> Matrix<Real> SlenderElemList<Real>::SelfInteracHelper(const Kernel& ker, const Long elem_idx) const {
+  template <class Real> template <Integer digits, bool trg_dot_prod, class Kernel> void SlenderElemList<Real>::SelfInteracHelper(Matrix<Real>& M, const Kernel& ker, const Long elem_idx) const {
     using Vec3 = Tensor<Real,true,COORD_DIM,1>;
     static constexpr Integer KDIM0 = Kernel::SrcDim();
     static constexpr Integer KDIM1 = Kernel::TrgDim()/(trg_dot_prod?COORD_DIM:1);
@@ -3556,7 +3549,7 @@ namespace sctl {
       Matrix<Real>::GEMM(M_nodal_, M_modal_, M_fourier_inv);
     }
 
-    Matrix<Real> M(ElemOrder*FourierOrder*KDIM0, ElemOrder*FourierOrder*KDIM1); // TODO: pass M by reference
+    if (M.Dim(0) != ElemOrder*FourierOrder*KDIM0 || M.Dim(1) != ElemOrder*FourierOrder*KDIM1) M.ReInit(ElemOrder*FourierOrder*KDIM0, ElemOrder*FourierOrder*KDIM1);
     { // Set M
       const Integer Nnds = ElemOrder*FourierOrder;
       for (Integer i = 0; i < Nnds; i++) {
@@ -3571,7 +3564,6 @@ namespace sctl {
         }
       }
     }
-    return M;
   }
 
   template <class Real> template <class ValueType> void SlenderElemList<Real>::Copy(SlenderElemList<ValueType>& elem_lst) const {

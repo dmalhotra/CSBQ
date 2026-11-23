@@ -229,7 +229,7 @@ namespace sctl {
     private:
 
       template <class Kernel> Matrix<Real> SelfInteracHelper_(const Kernel& ker, const Long elem_idx, const Real tol) const; // constant radius
-      template <Integer digits, bool trg_dot_prod, class Kernel> Matrix<Real> SelfInteracHelper(const Kernel& ker, const Long elem_idx) const;
+      template <Integer digits, bool trg_dot_prod, class Kernel> void SelfInteracHelper(Matrix<Real>& M, const Kernel& ker, const Long elem_idx) const;
 
       template <Integer digits, bool trg_dot_prod, class Kernel> void NearInteracHelper(Matrix<Real>& M, const Vector<Real>& Xtrg, const Vector<Real>& normal_trg, const Kernel& ker, const Long elem_idx) const;
 
