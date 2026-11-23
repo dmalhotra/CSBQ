@@ -276,6 +276,11 @@ namespace sctl {
     Vector<Real> ComputeVelocity(const RigidBodyList<Real>& geom, const Vector<Real>& Ubg, const Real tol = 1e-8, const Real quad_tol = 1e-14, Vector<Real>* q = nullptr, Long* Ngmres = nullptr) const;
 
     /**
+     * @brief Solve the mobility problem as above, writing the velocity into U (resized only if its size differs).
+     */
+    void ComputeVelocity(Vector<Real>& U, const RigidBodyList<Real>& geom, const Vector<Real>& Ubg, const Real tol = 1e-8, const Real quad_tol = 1e-14, Vector<Real>* q = nullptr, Long* Ngmres = nullptr) const;
+
+    /**
      * @brief Compute one timestep.
      *
      * @tparam BgFlow The type of the background velocity field functor.
@@ -315,7 +320,7 @@ namespace sctl {
 
     private:
 
-    Vector<Real> ApplyPrecond(const Vector<Real>& x, const RigidBodyList<Real>& geom) const;
+    void ApplyPrecond(Vector<Real>& Ax, const Vector<Real>& x, const RigidBodyList<Real>& geom) const;
 
     const Comm comm_;
     const Stokes3D_FxU ker_FxU;
@@ -323,6 +328,7 @@ namespace sctl {
     const Stokes3D_DxU ker_DxU;
     const Stokes3D_FxUP ker_FxUP;
     const Stokes3D_FSxU ker_FSxU;
+    // BIOp_StokesFxU and BIOp_StokesDxU hold the element list of the last solve, so that its storage is reused
     mutable BoundaryIntegralOp<Real,Stokes3D_FxU> BIOp_StokesFxU;
     mutable BoundaryIntegralOp<Real,Stokes3D_FxT> BIOp_StokesFxT;
     mutable BoundaryIntegralOp<Real,Stokes3D_DxU> BIOp_StokesDxU;
@@ -331,6 +337,15 @@ namespace sctl {
     mutable Real SL_scal, DL_scal;
     mutable Matrix<Real> Mprecond;
     mutable RigidBodyList<Real> geom_precond;
+    mutable RigidBodyList<Real> geom_stage; // geometry at an SDC node, kept so that its storage is reused
+    mutable RigidBodyList<Real> geom_step; // geometry advanced by one time step, kept so that its storage is reused
+
+    struct SolveWork { // arrays of one mobility solve: node coordinates, node velocity, density, object velocities
+      Vector<Real> X, U, sigma, Uc, Omega;
+    };
+    mutable SolveWork stage_work; // solve arrays for the geometry at an SDC node, kept so that their storage is reused
+    mutable SolveWork step_work; // solve arrays for the geometry at the start of a time step, kept so that their storage is reused
+    mutable Vector<Real> gmres_q; // GMRES solution of the last mobility solve (scaled density), kept so that its storage is reused
   };
 
 }

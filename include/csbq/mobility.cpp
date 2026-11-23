@@ -1645,12 +1645,15 @@ namespace sctl {
 
     Mprecond = M.pinv(sctl::machine_eps<Real>()*32);
     if (!comm_.Rank()) Mprecond.Write((precond_fname+std::string("-M-")+std::to_string(precond_size)).c_str());
-
-    BIOp_StokesFxU.template DeleteElemList<SlenderElemList<Real>>();
-    BIOp_StokesDxU.template DeleteElemList<SlenderElemList<Real>>();
   }
 
   template <class Real> Vector<Real> Mobility<Real>::ComputeVelocity(const RigidBodyList<Real>& geom, const Vector<Real>& Ubg, const Real tol, const Real quad_tol, Vector<Real>* q_, Long* Ngmres_) const {
+    Vector<Real> U;
+    ComputeVelocity(U, geom, Ubg, tol, quad_tol, q_, Ngmres_);
+    return U;
+  }
+
+  template <class Real> void Mobility<Real>::ComputeVelocity(Vector<Real>& U, const RigidBodyList<Real>& geom, const Vector<Real>& Ubg, const Real tol, const Real quad_tol, Vector<Real>* q_, Long* Ngmres_) const {
     const SlenderElemList<Real>& elem_lst0 = geom.GetElemList();
     BIOp_StokesFxU.AddElemList(elem_lst0);
     BIOp_StokesDxU.AddElemList(elem_lst0);
@@ -1658,31 +1661,42 @@ namespace sctl {
     BIOp_StokesDxU.SetAccuracy(quad_tol);
     const Long N = BIOp_StokesFxU.Dim(1);
 
-    auto MobilityOp = [this,&geom](Vector<Real>* Ax, const Vector<Real>& x_) {
-      Vector<Real> Udl, Usl, Kx, x = x_;
+    auto MobilityOp = [this,&geom](Vector<Real>* Ax, const Vector<Real>& x_) { // 16 bytes: GMRES's std::function stores it without allocating
+      const Long N = x_.Dim();
+      ScratchBuf<Real> buf(5*N);
+      Vector<Real> x(N, buf.begin()+0*N, false), Kx(N, buf.begin()+1*N, false), x_Kx(N, buf.begin()+2*N, false);
+      Vector<Real> Usl(N, buf.begin()+3*N, false), Udl(N, buf.begin()+4*N, false);
+      x = x_;
       BIOp_StokesFxU.InvSqrtScaling(x);
       geom.RigidBodyMotionProj(Kx, x);
+      for (Long i = 0; i < N; i++) x_Kx[i] = x[i] - Kx[i];
 
-      BIOp_StokesFxU.ComputePotential(Usl, (x-Kx));
-      BIOp_StokesDxU.ComputePotential(Udl, (x-Kx));
-      (*Ax) = ApplyPrecond( ((x-Kx)*0.5 + Udl)*DL_scal + Usl*SL_scal + Kx , geom);
+      BIOp_StokesFxU.ComputePotential(Usl, x_Kx);
+      BIOp_StokesDxU.ComputePotential(Udl, x_Kx);
+      for (Long i = 0; i < N; i++) Usl[i] = (x_Kx[i]*0.5 + Udl[i])*DL_scal + Usl[i]*SL_scal + Kx[i];
+      ApplyPrecond(*Ax, Usl, geom);
       BIOp_StokesFxU.SqrtScaling(*Ax);
     };
 
-    Vector<Real> rhs(N); rhs = 0;
+    ScratchBuf<Real> rhs_buf(N);
+    Vector<Real> rhs(N, rhs_buf.begin(), false);
+    rhs = 0;
     if (gravity_) {
-      Vector<Real> F(N); F = 0;
+      ScratchBuf<Real> F_buf(N);
+      Vector<Real> F(N, F_buf.begin(), false);
+      F = 0;
       for (Long i = 0; i < N/COORD_DIM; i++) {
         F[i*COORD_DIM+2] = gravity_;
       }
       BIOp_StokesFxU.ComputePotential(rhs, F);
     }
     if (Ubg.Dim()) rhs += Ubg;
-    rhs = ApplyPrecond(rhs, geom);
+    ApplyPrecond(rhs, rhs, geom);
     BIOp_StokesFxU.SqrtScaling(rhs);
 
     Long Ngmres;
-    Vector<Real> q;
+    Vector<Real>& q = gmres_q;
+    q.ReInit(0); // GMRES starts from zero when q is empty; ReInit keeps the storage
     GMRES<Real> solver(comm_);
     solver(&q, MobilityOp, rhs, tol, 300, false, &Ngmres);
     BIOp_StokesFxU.InvSqrtScaling(q);
@@ -1691,48 +1705,52 @@ namespace sctl {
     //MobilityOp(&Mq, q);
     //err = rhs - Mq;
 
-    BIOp_StokesFxU.template DeleteElemList<SlenderElemList<Real>>();
-    BIOp_StokesDxU.template DeleteElemList<SlenderElemList<Real>>();
-
-    Vector<Real> U;
     geom.RigidBodyMotionProj(U, q);
     if (Ngmres_) (*Ngmres_) = Ngmres;
     if (q_) (*q_) = q;
-    return U;
   }
 
   template <class Real> template <class BgFlow> Real Mobility<Real>::TimeStep(RigidBodyList<Real>& geom0, const BgFlow& bg_flow, const Real dt, const SDC<Real>& ode_solver, const Real time_step_tol, const Real quad_tol, const Real gmres_tol) const {
-    auto append_vecs = [](const Vector<Real>& A, const Vector<Real>& B) {
-      Vector<Real> C(A.Dim() + B.Dim());
+    auto append_vecs = [](Vector<Real>& C, const Vector<Real>& A, const Vector<Real>& B) { // C <-- [A, B]
+      if (C.Dim() != A.Dim() + B.Dim()) C.ReInit(A.Dim() + B.Dim());
       for (Long i = 0; i < A.Dim(); i++) C[i] = A[i];
       for (Long i = 0; i < B.Dim(); i++) C[A.Dim() + i] = B[i];
-      return C;
     };
     auto update_geom = [](RigidBodyList<Real>& geom, const Vector<Real>& dY) { // Set geom += dY
       const Long N = dY.Dim() / (COORD_DIM+COORD_DIM*COORD_DIM);
       const Vector<Real> Uc(N*COORD_DIM, (Iterator<Real>)dY.begin(), false);
-      Vector<Real> Mr(N*COORD_DIM*COORD_DIM, (Iterator<Real>)dY.begin() + N*COORD_DIM);
+      ScratchBuf<Real> Mr_buf(N*COORD_DIM*COORD_DIM);
+      Vector<Real> Mr(Mr_buf);
+      std::copy(dY.begin() + N*COORD_DIM, dY.begin() + N*COORD_DIM + Mr.Dim(), Mr.begin());
       for (Long i = 0; i < N; i++) { // project Mr to orthonormal matrix
+        ScratchBuf<Real> buf(4*COORD_DIM*COORD_DIM);
         Matrix<Real> M(COORD_DIM,COORD_DIM, Mr.begin() + i*COORD_DIM*COORD_DIM, false);
-        Matrix<Real> U, S, Vt, M_ = M;
+        Matrix<Real> M_(COORD_DIM, COORD_DIM, buf.begin(), false);
+        Matrix<Real> U(COORD_DIM, COORD_DIM, buf.begin() + COORD_DIM*COORD_DIM, false);
+        Matrix<Real> S(COORD_DIM, COORD_DIM, buf.begin() + 2*COORD_DIM*COORD_DIM, false);
+        Matrix<Real> Vt(COORD_DIM, COORD_DIM, buf.begin() + 3*COORD_DIM*COORD_DIM, false);
+        M_ = M;
         M_.SVD(U,S,Vt);
-        M = U*Vt;
+        Matrix<Real>::GEMM(M, U, Vt);
       }
       geom.RigidBodyUpdate(Uc, Mr);
     };
     auto fn = [this,&append_vecs,&update_geom, &geom0,&bg_flow, &gmres_tol,&quad_tol](Vector<Real>* dYdt, const Vector<Real>& dY) {
-      RigidBodyList<Real> geom = geom0;
+      RigidBodyList<Real>& geom = geom_stage;
+      geom = geom0;
       update_geom(geom, dY);
 
-      Vector<Real> Uc, Omega;
+      Vector<Real>& Uc = stage_work.Uc;
+      Vector<Real>& Omega = stage_work.Omega;
       { // [Uc, Omega] <-- Mobility(geom)
         Profile::Tic("MobilSolve", &comm_, true);
         bool prof_state = Profile::Enable(false);
 
-        Vector<Real> X, sigma;
+        Vector<Real>& X = stage_work.X;
+        Vector<Real>& U = stage_work.U;
         geom.GetElemList().GetNodeCoord(&X, nullptr, nullptr);
         const Vector<Real> Ubg = bg_flow(X);
-        const Vector<Real> U = ComputeVelocity(geom, Ubg, gmres_tol, quad_tol, &sigma);
+        ComputeVelocity(U, geom, Ubg, gmres_tol, quad_tol);
         geom.GetRigidBodyMotion(Uc, Omega, U);
 
         Profile::Enable(prof_state);
@@ -1749,7 +1767,8 @@ namespace sctl {
         };
 
         const Long Nobj = Uc.Dim() / COORD_DIM;
-        Vector<Real> Mr(Nobj*COORD_DIM*COORD_DIM);
+        ScratchBuf<Real> Mr_buf(Nobj*COORD_DIM*COORD_DIM);
+        Vector<Real> Mr(Mr_buf);
         for (Long obj = 0; obj < Nobj; obj++) {
           Tensor<Real,true,COORD_DIM,1> X, U, W(Omega.begin() + obj*COORD_DIM);
           for (Integer j = 0; j < COORD_DIM; j++) {
@@ -1760,20 +1779,26 @@ namespace sctl {
             }
           }
         }
-        dYdt[0] = append_vecs(Uc, Mr);
+        append_vecs(dYdt[0], Uc, Mr);
       }
     };
 
     Vector<Real> Y0, dY;
     { // Set Y0 // TODO remove
-      Vector<Real> X, Uc, Omega, Mr;
-      const SlenderElemList<Real> elem_lst0 = geom0.GetElemList();
+      Vector<Real>& X = stage_work.X;
+      Vector<Real>& U = stage_work.U;
+      Vector<Real>& Uc = stage_work.Uc;
+      Vector<Real>& Omega = stage_work.Omega;
+      const SlenderElemList<Real>& elem_lst0 = geom0.GetElemList();
       elem_lst0.GetNodeCoord(&X, nullptr, nullptr);
-      geom0.GetRigidBodyMotion(Uc, Omega, X * 0);
+      if (U.Dim() != X.Dim()) U.ReInit(X.Dim());
+      U = 0;
+      geom0.GetRigidBodyMotion(Uc, Omega, U);
 
       //geom0.RotationMatrix(Mr, Omega, 0);
       const Long Nobj = Omega.Dim()/COORD_DIM;
-      Mr.ReInit(Nobj*COORD_DIM*COORD_DIM);
+      ScratchBuf<Real> Mr_buf(Nobj*COORD_DIM*COORD_DIM);
+      Vector<Real> Mr(Mr_buf);
       for (Long i = 0; i < Nobj; i++) {
         for (Integer k0 = 0; k0 < COORD_DIM; k0++) {
           for (Integer k1 = 0; k1 < COORD_DIM; k1++) {
@@ -1782,7 +1807,7 @@ namespace sctl {
         }
       }
 
-      Y0 = append_vecs(Uc, Mr);
+      append_vecs(Y0, Uc, Mr);
     }
 
     Real error_interp, error_picard;
@@ -1827,15 +1852,17 @@ namespace sctl {
     Real t = 0;
     while (t < T && dt > eps*T) {
       Profile::Tic("TimeStep", &comm_, true);
-      RigidBodyList<Real> geom_ = geom;
+      RigidBodyList<Real>& geom_ = geom_step;
+      geom_ = geom;
 
-      Vector<Real> U, sigma;
+      Vector<Real>& U = step_work.U;
+      Vector<Real>& sigma = step_work.sigma;
       Long Ngmres = 0, Nunknown = 0;
       { // Compute U, sigma, Ngmres, Nunknown
-        Vector<Real> X;
+        Vector<Real>& X = step_work.X;
         geom_.GetElemList().GetNodeCoord(&X, nullptr, nullptr);
         const Vector<Real> Ubg = bg_flow(X);
-        U = ComputeVelocity(geom_, Ubg, gmres_tol, quad_tol, &sigma, &Ngmres);
+        ComputeVelocity(U, geom_, Ubg, gmres_tol, quad_tol, &sigma, &Ngmres);
 
         Nunknown = [this,&sigma]() {
           StaticArray<Long,2> len{sigma.Dim(),0};
@@ -1888,14 +1915,18 @@ namespace sctl {
       if (time_step_order > 1) {
         max_err = TimeStep(geom_, bg_flow, dt, ode_solver, time_step_tol*dt*0.1, quad_tol, gmres_tol);
       } else { // First order explicit, no adaptivity in time
-        Vector<Real> Uc, Omega_c, Mr_lst;
+        Vector<Real>& Uc = step_work.Uc;
+        Vector<Real>& Omega_c = step_work.Omega;
         geom_.GetRigidBodyMotion(Uc, Omega_c, U);
+        ScratchBuf<Real> Mr_buf(Omega_c.Dim()*COORD_DIM);
+        Vector<Real> Mr_lst(Mr_buf);
         geom_.RotationMatrix(Mr_lst, Omega_c, dt);
-        geom_.RigidBodyUpdate(Uc*dt, Mr_lst);
+        Uc *= dt;
+        geom_.RigidBodyUpdate(Uc, Mr_lst);
       }
 
       bool accept_solution = (max_err <= time_step_tol*dt);
-      const Long MaxFourierOrder = [geom_]() {
+      const Long MaxFourierOrder = [&geom_]() {
         Long max_order = 0;
         for (const auto& Nf : geom_.FourierOrder) max_order = std::max<Long>(max_order, Nf);
         return max_order;
@@ -1997,13 +2028,19 @@ namespace sctl {
     }
   }
 
-  template <class Real> Vector<Real> Mobility<Real>::ApplyPrecond(const Vector<Real>& x, const RigidBodyList<Real>& geom) const {
-    if (Mprecond.Dim(0) * Mprecond.Dim(1) == 0) return x;
+  template <class Real> void Mobility<Real>::ApplyPrecond(Vector<Real>& Ax, const Vector<Real>& x, const RigidBodyList<Real>& geom) const {
+    const Long N = x.Dim();
+    if (Ax.Dim() != N) Ax.ReInit(N);
+    if (Mprecond.Dim(0) * Mprecond.Dim(1) == 0) {
+      if (&Ax != &x) Ax = x;
+      return;
+    }
 
-    Vector<Real> Ax0, x0;
+    ScratchBuf<Real> buf(2*N);
+    Vector<Real> Ax0(N, buf.begin(), false), x0(N, buf.begin()+N, false);
     geom.ApplyPrecond(Ax0, x, Mprecond, geom_precond);
     geom.ApplyPrecond(x0, x, Matrix<Real>(), geom_precond);
-    return (x-x0) + Ax0;
+    for (Long i = 0; i < N; i++) Ax[i] = (x[i]-x0[i]) + Ax0[i];
   }
 
 }
