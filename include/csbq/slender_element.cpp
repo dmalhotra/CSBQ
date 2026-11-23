@@ -2445,10 +2445,13 @@ namespace sctl {
     static const Vector<Matrix<Real>> Mfourier_transpose = compute_Mfourier_upsample_transpose();
 
     const Long Nelem = cheb_order.Dim();
-    Vector<Long> node_cnt(Nelem), node_dsp(Nelem);
-    { // Set node_cnt, node_dsp
+    ScratchBuf<Long> node_cnt(Nelem), node_dsp(Nelem);
+    Long work = 0; // multiply-adds per density component
+    { // Set node_cnt, node_dsp, work
       for (Long i = 0; i < Nelem; i++) {
         node_cnt[i] = cheb_order[i] * fourier_order[i];
+        work += node_cnt[i] * FARFIELD_UPSAMPLE*FARFIELD_UPSAMPLE * cheb_order[i];
+        if (FARFIELD_UPSAMPLE != 1) work += node_cnt[i] * FARFIELD_UPSAMPLE * fourier_order[i];
       }
       if (Nelem) node_dsp[0] = 0;
       omp_par::scan(node_cnt.begin(), node_dsp.begin(), Nelem);
@@ -2461,32 +2464,26 @@ namespace sctl {
     if (Fout.Dim() != Nnodes*(FARFIELD_UPSAMPLE*FARFIELD_UPSAMPLE) * density_dof) {
       Fout.ReInit(Nnodes*(FARFIELD_UPSAMPLE*FARFIELD_UPSAMPLE) * density_dof);
     }
-    Matrix<Real> F0; // pre-allocate
-    for (Long i = 0; i < Nelem; i++) { // TODO: parallelize
+    auto elem_density = [this,&Fout,&Fin,&node_dsp,density_dof](const Long i) {
       const Integer ElemOrder = cheb_order[i];
       const Integer FourierOrder = fourier_order[i];
 
       const auto& Mfourier_ = Mfourier_transpose[FourierOrder];
       const Matrix<Real> Fin_(ElemOrder, FourierOrder*density_dof, (Iterator<Real>)Fin.begin()+node_dsp[i]*density_dof, false);
-      if (Mfourier_.Dim(0) && Mfourier_.Dim(1)) {
-        F0.ReInit(ElemOrder, FourierOrder*FARFIELD_UPSAMPLE*density_dof);
-        for (Long l = 0; l < ElemOrder; l++) { // Set F0
-          for (Long j0 = 0; j0 < FourierOrder*FARFIELD_UPSAMPLE; j0++) {
-            for (Long k = 0; k < density_dof; k++) {
-              Real f = 0;
-              for (Long j1 = 0; j1 < FourierOrder; j1++) {
-                f += Fin_[l][j1*density_dof+k] * Mfourier_[j0][j1];
-              }
-              F0[l][j0*density_dof+k] = f;
-            }
-          }
-        }
+      const bool upsample_fourier = (Mfourier_.Dim(0) && Mfourier_.Dim(1));
+      ScratchBuf<Real> F0_buf(upsample_fourier ? ElemOrder*FourierOrder*FARFIELD_UPSAMPLE*density_dof : 0);
+      Matrix<Real> F0((upsample_fourier ? ElemOrder : 0), FourierOrder*FARFIELD_UPSAMPLE*density_dof, F0_buf.begin(), false);
+      if (upsample_fourier) { // Set F0
+        const SmallGEMM<Real> gemm(false, FourierOrder*FARFIELD_UPSAMPLE, density_dof, FourierOrder);
+        for (Long l = 0; l < ElemOrder; l++) gemm(F0[l], Mfourier_.begin(), Fin_[l]);
       }
-      const auto& F0_ = (Mfourier_.Dim(0) && Mfourier_.Dim(1) ? F0 : Fin_);
+      const auto& F0_ = (upsample_fourier ? F0 : Fin_);
 
       Matrix<Real> Fout_(ElemOrder*FARFIELD_UPSAMPLE, FourierOrder*FARFIELD_UPSAMPLE*density_dof, Fout.begin()+node_dsp[i]*FARFIELD_UPSAMPLE*FARFIELD_UPSAMPLE*density_dof, false);
-      Matrix<Real>::GEMM(Fout_, detail_far_field::ChebUpsample<Real,FARFIELD_UPSAMPLE>(ElemOrder, true), F0_);
-    }
+      SmallGEMM<Real>(false, Fout_.Dim(0), Fout_.Dim(1), F0_.Dim(0))(Fout_, detail_far_field::ChebUpsample<Real,FARFIELD_UPSAMPLE>(ElemOrder, true), F0_);
+    };
+    constexpr Long ParallelWork = (Long)1 << 17; // below this, one thread took less time (48-core Genoa socket)
+    omp_par::parallel_for(Nelem, elem_density, false, work * density_dof > ParallelWork);
   }
   template <class Real> void SlenderElemList<Real>::FarFieldDensityOperatorTranspose(Matrix<Real>& Mout, const Matrix<Real>& Min, const Long elem_idx) const {
     constexpr Integer MaxOrderFourier = 128/FARFIELD_UPSAMPLE;
@@ -2514,23 +2511,16 @@ namespace sctl {
       Mout.SetZero();
     }
 
-    Matrix<Real> Mtmp(ElemOrder*FARFIELD_UPSAMPLE, FourierOrder*density_dof*N);
     const Matrix<Real> Min_(ElemOrder*FARFIELD_UPSAMPLE, FourierOrder*FARFIELD_UPSAMPLE*density_dof*N, (Iterator<Real>)Min.begin(), false);
-    if (FARFIELD_UPSAMPLE != 1) { // Appyl Mfourier // TODO: optimize
+    ScratchBuf<Real> Mtmp_buf(FARFIELD_UPSAMPLE != 1 ? ElemOrder*FARFIELD_UPSAMPLE*FourierOrder*density_dof*N : 0);
+    Matrix<Real> Mtmp(ElemOrder*FARFIELD_UPSAMPLE, FourierOrder*density_dof*N, (FARFIELD_UPSAMPLE != 1 ? Mtmp_buf.begin() : (Iterator<Real>)Min.begin()), false);
+    if (FARFIELD_UPSAMPLE != 1) { // Apply Mfourier
       const auto& Mfourier_ = Mfourier[FourierOrder];
       for (Long l = 0; l < ElemOrder*FARFIELD_UPSAMPLE; l++) {
-        for (Long j0 = 0; j0 < FourierOrder; j0++) {
-          for (Long k = 0; k < density_dof*N; k++) {
-            Real f_tmp = 0;
-            for (Long j1 = 0; j1 < FourierOrder*FARFIELD_UPSAMPLE; j1++) {
-              f_tmp += Min_[l][j1*density_dof*N+k] * Mfourier_[j0][j1];
-            }
-            Mtmp[l][j0*density_dof*N+k] = f_tmp;
-          }
-        }
+        const Matrix<Real> Min_l(FourierOrder*FARFIELD_UPSAMPLE, density_dof*N, (Iterator<Real>)Min_[l], false);
+        Matrix<Real> Mtmp_l(FourierOrder, density_dof*N, Mtmp[l], false);
+        Matrix<Real>::GEMM(Mtmp_l, Mfourier_, Min_l);
       }
-    }else{
-      Mtmp.ReInit(ElemOrder*FARFIELD_UPSAMPLE, FourierOrder*density_dof*N, (Iterator<Real>)Min.begin(), false);
     }
 
     Matrix<Real> Mout_(ElemOrder, FourierOrder*density_dof*N, Mout.begin(), false);
