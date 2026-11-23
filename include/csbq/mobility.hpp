@@ -147,7 +147,7 @@ namespace sctl {
      * @param A The operator to apply for one object in the reference geometry.
      * @param ref_geom The reference geometry.
      */
-    void ApplyPrecond(Vector<Real>& Ax0, const Vector<Real> x0, const Matrix<Real>& A, const RigidBodyList<Real>& ref_geom) const;
+    void ApplyPrecond(Vector<Real>& Ax0, const Vector<Real>& x0, const Matrix<Real>& A, const RigidBodyList<Real>& ref_geom) const;
 
     /**
      * @brief Get the minimum separation between the rigid objects.
@@ -171,9 +171,21 @@ namespace sctl {
 
     static void InitGeom(Vector<Real>& X, Vector<Real>& R, Vector<Real>& OrientVec, Vector<Long>& ElemOrder, Vector<Long>& FourierOrder, Vector<Real>& panel_len, Vector<Real>& Mr_lst, Vector<Long>& cnt, Vector<Long>& dsp, const Long Nobj, const Real loop_rad, const Geom& geom_type);
 
-    static void SlenderElemIntegral(Vector<Real>& IntegralF, const Vector<Real>& F_cheb, const SlenderElemList<Real>& elem_lst);
-
+    /**
+     * Integral of a density (given at the surface discretization nodes) over the surface of each object.
+     */
     static void ObjIntegral(Vector<Real>& IntegralF, const Vector<Real>& F_cheb, const SlenderElemList<Real>& elem_lst, const Vector<Long>& obj_elem_cnt, const Vector<Long>& obj_elem_dsp, const Comm comm);
+
+    /**
+     * ObjIntegral with the number of local surface nodes (Nnodes_loc), the far-field quadrature weights (far_wts) and
+     * their count for each local element (far_cnt) given.
+     */
+    static void ObjIntegral(Vector<Real>& IntegralF, const Vector<Real>& F_cheb, const SlenderElemList<Real>& elem_lst, const Long Nnodes_loc, const Vector<Real>& far_wts, const Vector<Long>& far_cnt, const Vector<Long>& obj_elem_cnt, const Vector<Long>& obj_elem_dsp, const Comm comm);
+
+    /**
+     * ObjIntegral over the objects of this list, with the stored far-field quadrature weights.
+     */
+    void ObjIntegral(Vector<Real>& IntegralF, const Vector<Real>& F_cheb) const;
 
     template <class ValueType> static void InitElemList(Long& loc_elem_cnt, Long& loc_elem_dsp, SlenderElemList<Real>& elem_lst, const Vector<Long>& ElemOrder, const Vector<Long>& FourierOrder, const Vector<ValueType>& X, const Vector<ValueType>& R, const Vector<ValueType>& OrientVec, const Comm comm);
 
@@ -185,10 +197,15 @@ namespace sctl {
     static void GetNodeObjIdx(Vector<Long>& node_obj_idx, const SlenderElemList<Real>& elem_lst, const Vector<Long>& obj_elem_cnt, const Vector<Long>& obj_elem_dsp, const Comm comm);
 
     /**
-     * Returns the rigid body rotation velocities corresponding to given
-     * translational and rotational velocities.
+     * Returns the rigid body velocity at each node (position X, on object node_obj_idx) corresponding to given
+     * translational and rotational velocities of each object.
      */
-    static void RigidBodyVelocity(Vector<Real>& U, const Vector<Real> Uobj, const Vector<Real> Omega_obj, const Vector<Real> Xc, const SlenderElemList<Real>& elem_lst, const Vector<Long>& obj_elem_cnt, const Vector<Long>& obj_elem_dsp, const Comm comm);
+    static void RigidBodyVelocity(Vector<Real>& U, const Vector<Real>& Uobj, const Vector<Real>& Omega_obj, const Vector<Real>& Xc, const Vector<Real>& X, const Vector<Long>& node_obj_idx);
+
+    /**
+     * Sets far_wts, far_cnt, node_obj_idx and rbm_basis from the current geometry (elem_lst and Xc).
+     */
+    void InitRigidBodyBasis();
 
     Comm comm_;
     Vector<Long> obj_elem_cnt, obj_elem_dsp; // panel count for each object (global)
@@ -201,6 +218,12 @@ namespace sctl {
 
     Long loc_elem_cnt, loc_elem_dsp; // local element count and displacement
     SlenderElemList<Real> elem_lst;
+
+    Vector<Real> far_wts; // far-field quadrature weights (tolerance 1) at the local elements
+    Vector<Real> far_X, far_Xn, far_dist; // the other outputs of GetFarFieldNodes, not used; kept so that their storage is reused
+    Vector<Long> far_cnt; // number of far-field quadrature nodes of each local element
+    Vector<Long> node_obj_idx; // object index of each local surface node
+    Matrix<Real> rbm_basis; // rigid body motions at local surface nodes (2*COORD_DIM x Nnodes_loc*COORD_DIM), orthonormal on each object
   };
 
   /**

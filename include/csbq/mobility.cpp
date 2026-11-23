@@ -6,16 +6,30 @@
 
 namespace sctl {
 
-  template <class ValueType> static Vector<ValueType> Allgather(const Vector<ValueType>& Y_loc, const Comm& comm) {
+  /**
+   * Gathers Y_loc of all processes, in process order, into scratch storage Y and calls use(Y); Y is valid only during
+   * the call.
+   */
+  template <class ValueType, class Use> static void Allgather(const Vector<ValueType>& Y_loc, const Comm& comm, const Use& use) {
     const Long Np = comm.Size();
     const StaticArray<Long,1> cnt_loc{Y_loc.Dim()};
 
-    Vector<Long> cnt(Np), dsp(Np); dsp = 0;
+    ScratchBuf<Long> cnt(Np), dsp(Np);
     comm.Allgather((ConstIterator<Long>)cnt_loc, 1, cnt.begin(), 1);
-    omp_par::scan(cnt.begin(), dsp.begin(), cnt.Dim());
+    omp_par::scan(cnt.begin(), dsp.begin(), Np, (Long)0);
 
-    Vector<ValueType> Y(dsp[Np-1] + cnt[Np-1]);
+    ScratchBuf<ValueType> Y_buf(dsp[Np-1] + cnt[Np-1]);
+    Vector<ValueType> Y(Y_buf);
     comm.Allgatherv(Y_loc.begin(), Y_loc.Dim(), Y.begin(), cnt.begin(), dsp.begin());
+    use((const Vector<ValueType>&)Y);
+  }
+
+  /**
+   * Returns Y_loc of all processes, in process order.
+   */
+  template <class ValueType> static Vector<ValueType> Allgather(const Vector<ValueType>& Y_loc, const Comm& comm) {
+    Vector<ValueType> Y;
+    Allgather(Y_loc, comm, [&Y](const Vector<ValueType>& Y_) { Y = Y_; });
     return Y;
   }
 
@@ -25,6 +39,7 @@ namespace sctl {
     InitGeom(X, R, OrientVec, ElemOrder, FourierOrder, panel_len, Mr_lst, obj_elem_cnt, obj_elem_dsp, Nobj, loop_rad, geom_type);
     InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ElemOrder, FourierOrder, X, R, OrientVec, comm_);
     GetXc(Xc, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
+    InitRigidBodyBasis();
   }
 
   template <class Real> template <class ValueType> void RigidBodyList<Real>::Init(const Vector<Long>& obj_elem_cnt_, const Vector<ValueType>& Mr_lst_, const Vector<Long>& ElemOrder_, const Vector<Long>& FourierOrder_, const Vector<ValueType>& panel_len_, const Vector<ValueType>& X_, const Vector<ValueType>& R_, const Vector<ValueType>& OrientVec_) {
@@ -51,6 +66,7 @@ namespace sctl {
 
     InitElemList<ValueType>(loc_elem_cnt, loc_elem_dsp, elem_lst, ElemOrder, FourierOrder, X_, R_, OrientVec_, comm_);
     GetXc(Xc, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
+    InitRigidBodyBasis();
   }
 
   template <class Real> void RigidBodyList<Real>::Write(const std::string& fname) const {
@@ -175,6 +191,7 @@ namespace sctl {
     }
 
     InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ElemOrder, FourierOrder, X, R, OrientVec, comm_);
+    InitRigidBodyBasis();
   }
 
   template <class Real> const SlenderElemList<Real>& RigidBodyList<Real>::GetElemList() const {
@@ -190,39 +207,69 @@ namespace sctl {
     if (Mr_) Mr_[0] = Vector<Real>((b-a)*COORD_DIM*COORD_DIM, (Iterator<Real>)Mr_lst.begin() + a*COORD_DIM*COORD_DIM, false);
   }
 
-  template <class Real> void RigidBodyList<Real>::RigidBodyMotionProj(Vector<Real>& u_proj, const Vector<Real>& u) const { // TODO: optimize
+  template <class Real> void RigidBodyList<Real>::RigidBodyMotionProj(Vector<Real>& u_proj, const Vector<Real>& u) const {
     Profile::Tic("RigidBodyProj", &comm_);
-    auto inner_prod = [this](const Vector<Real>& A, const Vector<Real>& B) {
-      SCTL_ASSERT(A.Dim() == B.Dim());
-      Vector<Real> AB(A.Dim()), IntegralAB;
-      for (Long i = 0; i < A.Dim(); i++) AB[i] = A[i]*B[i];
-      ObjIntegral(IntegralAB, AB, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
+    constexpr Integer Nmodes = 2*COORD_DIM;
+    const Long Nobj = obj_elem_cnt.Dim();
+    const Long Nloc = node_obj_idx.Dim();
+    SCTL_ASSERT(u.Dim() == Nloc*COORD_DIM);
 
-      const Long Nobj = obj_elem_cnt.Dim();
-      const Long dof = IntegralAB.Dim() / Nobj;
-      Vector<Real> AdotB(Nobj); AdotB = 0;
+    ScratchBuf<Real> u_dot_q_buf(Nloc*Nmodes), obj_u_dot_q_buf(Nobj*Nmodes);
+    Vector<Real> u_dot_q(u_dot_q_buf), obj_u_dot_q(obj_u_dot_q_buf);
+    for (Long node_idx = 0; node_idx < Nloc; node_idx++) {
+      for (Integer k = 0; k < Nmodes; k++) {
+        Real sum = 0;
+        for (Long l = 0; l < COORD_DIM; l++) sum += u[node_idx*COORD_DIM+l] * rbm_basis[k][node_idx*COORD_DIM+l];
+        u_dot_q[node_idx*Nmodes+k] = sum;
+      }
+    }
+    ObjIntegral(obj_u_dot_q, u_dot_q);
+
+    if (u_proj.Dim() != u.Dim()) u_proj.ReInit(u.Dim());
+    u_proj.SetZero();
+    for (Long node_idx = 0; node_idx < Nloc; node_idx++) { // u_proj <-- Q (Q^T u)
+      const Long obj = node_obj_idx[node_idx];
+      for (Integer k = 0; k < Nmodes; k++) {
+        for (Long l = 0; l < COORD_DIM; l++) {
+          u_proj[node_idx*COORD_DIM+l] += rbm_basis[k][node_idx*COORD_DIM+l] * obj_u_dot_q[obj*Nmodes+k];
+        }
+      }
+    }
+    Profile::Toc();
+  }
+
+  template <class Real> void RigidBodyList<Real>::InitRigidBodyBasis() {
+    elem_lst.GetFarFieldNodes(far_X, far_Xn, far_wts, far_dist, far_cnt, (Real)1);
+
+    const Long Nobj = obj_elem_cnt.Dim();
+    auto inner_prod = [this,Nobj](Vector<Real>& AdotB, const Vector<Real>& A, const Vector<Real>& B) {
+      SCTL_ASSERT(A.Dim() == B.Dim());
+      ScratchBuf<Real> AB_buf(A.Dim()), IntegralAB_buf(Nobj*COORD_DIM);
+      Vector<Real> AB(AB_buf), IntegralAB(IntegralAB_buf);
+      for (Long i = 0; i < A.Dim(); i++) AB[i] = A[i]*B[i];
+      ObjIntegral(IntegralAB, AB);
+
+      const Long dof = (Nobj ? IntegralAB.Dim() / Nobj : 0);
+      AdotB = 0;
       for (Long i = 0; i < Nobj; i++) {
         for (Long j = 0; j < dof; j++) {
           AdotB[i] += IntegralAB[i*dof+j];
         }
       }
-      return AdotB;
     };
 
-    Vector<Long> elem_node_cnt, elem_node_dsp, node_obj_idx;
-    { // Set elem_node_cnt, elem_node_dsp, node_obj_idx
-      Vector<Real> X;
-      elem_lst.GetNodeCoord(&X, nullptr, &elem_node_cnt);
-      elem_node_dsp.ReInit(elem_node_cnt.Dim()); elem_node_dsp = 0;
-      omp_par::scan(elem_node_cnt.begin(), elem_node_dsp.begin(), elem_node_cnt.Dim());
-      GetNodeObjIdx(node_obj_idx, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
-    }
-    const Long Nloc = (elem_node_cnt.Dim() ? elem_node_cnt[elem_node_cnt.Dim()-1] + elem_node_dsp[elem_node_dsp.Dim()-1] : 0);
-    const Long Nobj = obj_elem_cnt.Dim();
+    GetNodeObjIdx(node_obj_idx, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
+    const Long Nloc = node_obj_idx.Dim();
+    ScratchBuf<Real> X_buf(Nloc*COORD_DIM);
+    Vector<Real> X(X_buf);
+    elem_lst.GetNodeCoord(&X, nullptr, nullptr);
 
-    Matrix<Real> Q(2*COORD_DIM, u.Dim());
+    Matrix<Real>& Q = rbm_basis;
+    if (Q.Dim(0) != 2*COORD_DIM || Q.Dim(1) != Nloc*COORD_DIM) Q.ReInit(2*COORD_DIM, Nloc*COORD_DIM);
+    ScratchBuf<Real> obj_buf(3*Nobj*COORD_DIM);
+    Vector<Real> Uc(Nobj*COORD_DIM, obj_buf.begin(), false), Tc(Nobj*COORD_DIM, obj_buf.begin() + Nobj*COORD_DIM, false);
+    Vector<Real> obj_dot(Nobj, obj_buf.begin() + 2*Nobj*COORD_DIM, false); // a per-object inner product
     for (Integer k = 0; k < 2*COORD_DIM; k++) { // Set Q
-      Vector<Real> Uc(Nobj*COORD_DIM), Tc(Nobj*COORD_DIM);
       Uc.SetZero();
       Tc.SetZero();
       if (k < COORD_DIM) {
@@ -232,43 +279,29 @@ namespace sctl {
       }
 
       Vector<Real> q_k(Q.Dim(1), Q[k], false);
-      RigidBodyVelocity(q_k, Uc, Tc, Xc, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
+      RigidBodyVelocity(q_k, Uc, Tc, Xc, X, node_obj_idx);
 
       for (Integer j = 0; j < k; j++) { // q_k <-- orthogonalize(q_k, Q)
         Vector<Real> q_j(Q.Dim(1), Q[j], false);
-        Vector<Real> qk_dot_qj = inner_prod(q_k, q_j);
+        inner_prod(obj_dot, q_k, q_j);
         for (Long node_idx = 0; node_idx < Nloc; node_idx++) {
           const Long obj = node_obj_idx[node_idx];
           for(Long l = 0; l < COORD_DIM; l++) {
-            q_k[node_idx*COORD_DIM+l] -= q_j[node_idx*COORD_DIM+l] * qk_dot_qj[obj];
+            q_k[node_idx*COORD_DIM+l] -= q_j[node_idx*COORD_DIM+l] * obj_dot[obj];
           }
         }
       }
 
-      Vector<Real> rsqrt_qk_dot_qk = inner_prod(q_k, q_k);
-      for (auto& x : rsqrt_qk_dot_qk) x = 1/sqrt<Real>(x);
+      inner_prod(obj_dot, q_k, q_k);
+      for (auto& x : obj_dot) x = 1/sqrt<Real>(x);
 
       for (Long node_idx = 0; node_idx < Nloc; node_idx++) { // Q[k] <-- normalize(q_k)
         const Long obj = node_obj_idx[node_idx];
         for(Long l = 0; l < COORD_DIM; l++) {
-          q_k[node_idx*COORD_DIM+l] *= rsqrt_qk_dot_qk[obj];
+          q_k[node_idx*COORD_DIM+l] *= obj_dot[obj];
         }
       }
     }
-
-    if (u_proj.Dim() != u.Dim()) u_proj.ReInit(u.Dim());
-    u_proj.SetZero();
-    for (Integer k = 0; k < 2*COORD_DIM; k++) { // Compute u_proj
-      const Vector<Real> q_k(Q.Dim(1), Q[k], false);
-      Vector<Real> qk_dot_u = inner_prod(u, q_k);
-      for (Long node_idx = 0; node_idx < Nloc; node_idx++) { // u_proj <-- Q qk_dot_u
-        const Long obj = node_obj_idx[node_idx];
-        for(Long l = 0; l < COORD_DIM; l++) {
-          u_proj[node_idx*COORD_DIM+l] += q_k[node_idx*COORD_DIM+l] * qk_dot_u[obj];
-        }
-      }
-    }
-    Profile::Toc();
   }
 
   template <class Real> void RigidBodyList<Real>::GetRigidBodyMotion(Vector<Real>& Uc_loc, Vector<Real>& Omega_c_loc, const Vector<Real>& U_loc) const {
@@ -278,26 +311,30 @@ namespace sctl {
       AxB[2] = A[0]*B[1] - A[1]*B[0];
     };
 
-    Vector<Real> X_loc;
-    Vector<Long> node_cnt_loc, node_dsp_loc;
+    const Long Nobj = obj_elem_cnt.Dim();
+    const Long N = U_loc.Dim()/COORD_DIM;
+    ScratchBuf<Real> X_loc_buf(N*COORD_DIM);
+    ScratchBuf<Long> node_cnt_loc_buf(elem_lst.Size()), node_dsp_loc(elem_lst.Size());
+    Vector<Real> X_loc(X_loc_buf);
+    Vector<Long> node_cnt_loc(node_cnt_loc_buf);
     { // Set X_loc, node_cnt_loc, node_dsp_loc
       elem_lst.GetNodeCoord(&X_loc, nullptr, &node_cnt_loc);
-      node_dsp_loc.ReInit(node_cnt_loc.Dim());
-      if (node_cnt_loc.Dim()) node_dsp_loc[0] = 0;
-      omp_par::scan(node_cnt_loc.begin(), node_dsp_loc.begin(), node_cnt_loc.Dim());
+      omp_par::scan(node_cnt_loc.begin(), node_dsp_loc.begin(), node_cnt_loc.Dim(), (Long)0);
     }
 
-    Vector<Real> Uc, Omega_c;
-    { // Set Omega_c, Uc
-      Vector<Real> area;
-      ObjIntegral(Uc, U_loc, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
-      ObjIntegral(area, X_loc*0+1, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
+    ScratchBuf<Real> Uc_buf(Nobj*COORD_DIM), Omega_c_buf(Nobj*COORD_DIM);
+    Vector<Real> Uc(Uc_buf), Omega_c(Omega_c_buf);
+    { // Set Uc
+      ScratchBuf<Real> area_buf(Nobj*COORD_DIM), ones_buf(N*COORD_DIM);
+      Vector<Real> area(area_buf), ones(ones_buf);
+      ones = 1;
+      ObjIntegral(Uc, U_loc);
+      ObjIntegral(area, ones);
       Uc /= area;
     }
     { // Set Omega_c
-      const Long Nobj = obj_elem_cnt.Dim();
-      const Long N = U_loc.Dim()/COORD_DIM;
-      Vector<Real> UUt, UUt_loc(N*COORD_DIM*COORD_DIM);
+      ScratchBuf<Real> UUt_buf(Nobj*COORD_DIM*COORD_DIM), UUt_loc_buf(N*COORD_DIM*COORD_DIM);
+      Vector<Real> UUt(UUt_buf), UUt_loc(UUt_loc_buf);
       for (Long i = 0; i < loc_elem_cnt; i++) {
         const Long elem_idx = loc_elem_dsp + i;
         const Long obj_idx = std::upper_bound(obj_elem_dsp.begin(), obj_elem_dsp.end(), elem_idx) - obj_elem_dsp.begin() - 1;
@@ -312,12 +349,14 @@ namespace sctl {
           }
         }
       }
-      ObjIntegral(UUt, UUt_loc, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
+      ObjIntegral(UUt, UUt_loc);
 
-      Omega_c.ReInit(Nobj*COORD_DIM);
       for (Long obj = 0; obj < Nobj; obj++) { // Compute Omega_c direction
-        Matrix<Real> M(3,3, UUt.begin()+obj*COORD_DIM*COORD_DIM);
-        Matrix<Real> U, S, Vt;
+        ScratchBuf<Real> USVt_buf(3*COORD_DIM*COORD_DIM);
+        Matrix<Real> M(3,3, UUt.begin()+obj*COORD_DIM*COORD_DIM, false);
+        Matrix<Real> U(COORD_DIM, COORD_DIM, USVt_buf.begin(), false);
+        Matrix<Real> S(COORD_DIM, COORD_DIM, USVt_buf.begin() + COORD_DIM*COORD_DIM, false);
+        Matrix<Real> Vt(COORD_DIM, COORD_DIM, USVt_buf.begin() + 2*COORD_DIM*COORD_DIM, false);
         M.SVD(U, S, Vt);
 
         Long min_idx = 0;
@@ -333,7 +372,8 @@ namespace sctl {
         }
       }
       { // Compute Omega_c magnitude
-        Vector<Real> V_dot_U_loc(N), V_dot_V_loc(N);
+        ScratchBuf<Real> V_dot_buf(2*N);
+        Vector<Real> V_dot_U_loc(N, V_dot_buf.begin(), false), V_dot_V_loc(N, V_dot_buf.begin()+N, false);
         V_dot_U_loc = 0;
         V_dot_V_loc = 0;
         for (Long i = 0; i < loc_elem_cnt; i++) {
@@ -357,9 +397,10 @@ namespace sctl {
           }
         }
 
-        Vector<Real> V_dot_U, V_dot_V;
-        ObjIntegral(V_dot_V, V_dot_V_loc, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
-        ObjIntegral(V_dot_U, V_dot_U_loc, elem_lst, obj_elem_cnt, obj_elem_dsp, comm_);
+        ScratchBuf<Real> V_dot_obj_buf(2*Nobj);
+        Vector<Real> V_dot_U(Nobj, V_dot_obj_buf.begin(), false), V_dot_V(Nobj, V_dot_obj_buf.begin()+Nobj, false);
+        ObjIntegral(V_dot_V, V_dot_V_loc);
+        ObjIntegral(V_dot_U, V_dot_U_loc);
         for (Long obj_idx = 0; obj_idx < Nobj; obj_idx++) {
           for (Long k = 0; k < COORD_DIM; k++) {
             Omega_c[obj_idx*COORD_DIM+k] *= V_dot_U[obj_idx]/V_dot_V[obj_idx];
@@ -369,7 +410,6 @@ namespace sctl {
     }
 
     { // Set Uc_loc, Omega_c_loc
-      const Long Nobj = obj_elem_cnt.Dim();
       const Long a = (comm_.Rank()+0)*Nobj / comm_.Size();
       const Long b = (comm_.Rank()+1)*Nobj / comm_.Size();
       Uc_loc = Vector<Real>((b-a)*COORD_DIM, Uc.begin() + a*COORD_DIM, false);
@@ -378,44 +418,54 @@ namespace sctl {
   }
 
   template <class Real> void RigidBodyList<Real>::RigidBodyUpdate(const Vector<Real>& dXc_loc, const Vector<Real>& Mr_loc) {
-    const Vector<Real> dXc = Allgather(dXc_loc, comm_);
-    const Vector<Real> Mr_lst0 = Allgather(Mr_loc, comm_);
-
-    const Long Nobj = obj_elem_cnt.Dim();
-    Vector<Long> cnt(Nobj), dsp(Nobj); cnt = 0; dsp = 0;
-    for (Long obj = 0; obj < Nobj; obj++) {
-      for (Long i = 0; i < obj_elem_cnt[obj]; i++) {
-        cnt[obj] += ElemOrder[obj_elem_dsp[obj] + i];
-      }
-    }
-    omp_par::scan(cnt.begin(), dsp.begin(), Nobj);
-
-    for (Long obj = 0; obj < Nobj; obj++) { // Updatee X, OrientVec
-      const Matrix<Real> Mr0(COORD_DIM, COORD_DIM, (Iterator<Real>)Mr_lst0.begin() + obj*COORD_DIM*COORD_DIM, false);
-      Matrix<Real> X_(cnt[obj], COORD_DIM, X.begin() + dsp[obj]*COORD_DIM, false);
-      Matrix<Real> OrientVec_(cnt[obj], COORD_DIM, OrientVec.begin() + dsp[obj]*COORD_DIM, false);
-
-      for (Long j = 0; j < X_.Dim(0); j++) {
-        for (Long k = 0; k < COORD_DIM; k++) {
-          X_[j][k] -= Xc[obj*COORD_DIM+k];
+    const auto update = [this](const Vector<Real>& dXc, const Vector<Real>& Mr_lst0) { // dXc, Mr_lst0: of all objects
+      const Long Nobj = obj_elem_cnt.Dim();
+      ScratchBuf<Long> cnt(Nobj), dsp(Nobj);
+      for (Long obj = 0; obj < Nobj; obj++) {
+        cnt[obj] = 0;
+        for (Long i = 0; i < obj_elem_cnt[obj]; i++) {
+          cnt[obj] += ElemOrder[obj_elem_dsp[obj] + i];
         }
       }
-      X_ = X_ * Mr0;;
-      OrientVec_ = OrientVec_ * Mr0;;
-      for (Long j = 0; j < X_.Dim(0); j++) {
-        for (Long k = 0; k < COORD_DIM; k++) {
-          X_[j][k] += Xc[obj*COORD_DIM+k] + dXc[obj*COORD_DIM+k];
+      omp_par::scan(cnt.begin(), dsp.begin(), Nobj, (Long)0);
+
+      for (Long obj = 0; obj < Nobj; obj++) { // Updatee X, OrientVec
+        const Matrix<Real> Mr0(COORD_DIM, COORD_DIM, (Iterator<Real>)Mr_lst0.begin() + obj*COORD_DIM*COORD_DIM, false);
+        Matrix<Real> X_(cnt[obj], COORD_DIM, X.begin() + dsp[obj]*COORD_DIM, false);
+        Matrix<Real> OrientVec_(cnt[obj], COORD_DIM, OrientVec.begin() + dsp[obj]*COORD_DIM, false);
+
+        for (Long j = 0; j < X_.Dim(0); j++) {
+          for (Long k = 0; k < COORD_DIM; k++) {
+            X_[j][k] -= Xc[obj*COORD_DIM+k];
+          }
+        }
+        { // X_ <-- X_ * Mr0, OrientVec_ <-- OrientVec_ * Mr0
+          ScratchBuf<Real> tmp_buf(cnt[obj]*COORD_DIM);
+          Matrix<Real> tmp(cnt[obj], COORD_DIM, tmp_buf.begin(), false);
+          Matrix<Real>::GEMM(tmp, X_, Mr0);
+          X_ = tmp;
+          Matrix<Real>::GEMM(tmp, OrientVec_, Mr0);
+          OrientVec_ = tmp;
+        }
+        for (Long j = 0; j < X_.Dim(0); j++) {
+          for (Long k = 0; k < COORD_DIM; k++) {
+            X_[j][k] += Xc[obj*COORD_DIM+k] + dXc[obj*COORD_DIM+k];
+          }
         }
       }
-    }
-    InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ElemOrder, FourierOrder, X, R, OrientVec, comm_);
+      InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ElemOrder, FourierOrder, X, R, OrientVec, comm_);
 
-    for (Long obj = 0; obj < Nobj; obj++) { // Update Mr
-      const Tensor<Real,false,COORD_DIM,COORD_DIM> Mr0((Iterator<Real>)Mr_lst0.begin() + obj*COORD_DIM*COORD_DIM);
-      Tensor<Real,false,COORD_DIM,COORD_DIM> Mr(Mr_lst.begin() + obj*COORD_DIM*COORD_DIM);
-      Mr = Mr * Mr0;
-    }
-    Xc += dXc;
+      for (Long obj = 0; obj < Nobj; obj++) { // Update Mr
+        const Tensor<Real,false,COORD_DIM,COORD_DIM> Mr0((Iterator<Real>)Mr_lst0.begin() + obj*COORD_DIM*COORD_DIM);
+        Tensor<Real,false,COORD_DIM,COORD_DIM> Mr(Mr_lst.begin() + obj*COORD_DIM*COORD_DIM);
+        Mr = Mr * Mr0;
+      }
+      Xc += dXc;
+    };
+    Allgather(dXc_loc, comm_, [&update,&Mr_loc,this](const Vector<Real>& dXc) {
+      Allgather(Mr_loc, comm_, [&update,&dXc](const Vector<Real>& Mr_lst0) { update(dXc, Mr_lst0); });
+    });
+    InitRigidBodyBasis();
   }
 
   template <class Real> void RigidBodyList<Real>::RefineAdaptive(const Vector<Vector<Real>>& v_, const Real tol, const bool relative) {
@@ -618,6 +668,7 @@ namespace sctl {
     omp_par::scan(obj_elem_cnt.begin(), obj_elem_dsp.begin(), obj_elem_cnt.Dim());
 
     InitElemList(loc_elem_cnt, loc_elem_dsp, elem_lst, ElemOrder, FourierOrder, X, R, OrientVec, comm_);
+    InitRigidBodyBasis();
 
     //if (!comm_.Rank()) std::cout<<FourierOrderNew<<'\n';
     //std::cout<<elem_fourier_err<<'\n';
@@ -654,7 +705,7 @@ namespace sctl {
     }
   }
 
-  template <class Real> void RigidBodyList<Real>::ApplyPrecond(Vector<Real>& Ax0, const Vector<Real> x0, const Matrix<Real>& A, const RigidBodyList<Real>& ref_geom) const {
+  template <class Real> void RigidBodyList<Real>::ApplyPrecond(Vector<Real>& Ax0, const Vector<Real>& x0, const Matrix<Real>& A, const RigidBodyList<Real>& ref_geom) const {
     constexpr Long dof = COORD_DIM;
     Long Nelem, Nobj;
 
@@ -1288,46 +1339,63 @@ namespace sctl {
     }
   }
 
-  template <class Real> void RigidBodyList<Real>::SlenderElemIntegral(Vector<Real>& IntegralF, const Vector<Real>& F_cheb, const SlenderElemList<Real>& elem_lst) {
-    Vector<Long> cnt, dsp;
-    Vector<Real> X, Xn, wts, dist_far, F;
-    elem_lst.GetFarFieldNodes(X, Xn, wts, dist_far, cnt, (Real)1);
-    dsp.ReInit(cnt.Dim()); dsp = 0;
-    omp_par::scan(cnt.begin(), dsp.begin(), cnt.Dim());
-    elem_lst.GetFarFieldDensity(F, F_cheb);
-    if (!wts.Dim()) {
-      IntegralF.ReInit(0);
+  template <class Real> void RigidBodyList<Real>::ObjIntegral(Vector<Real>& IntegralF, const Vector<Real>& F_cheb, const SlenderElemList<Real>& elem_lst, const Vector<Long>& obj_elem_cnt, const Vector<Long>& obj_elem_dsp, const Comm comm) {
+    Vector<Real> X, Xn, far_wts, dist_far;
+    Vector<Long> far_cnt;
+    elem_lst.GetFarFieldNodes(X, Xn, far_wts, dist_far, far_cnt, (Real)1);
+    Vector<Long> node_cnt;
+    elem_lst.GetNodeCoord(nullptr, nullptr, &node_cnt);
+    Long Nnodes_loc = 0;
+    for (const auto& n : node_cnt) Nnodes_loc += n;
+    ObjIntegral(IntegralF, F_cheb, elem_lst, Nnodes_loc, far_wts, far_cnt, obj_elem_cnt, obj_elem_dsp, comm);
+  }
+
+  template <class Real> void RigidBodyList<Real>::ObjIntegral(Vector<Real>& IntegralF, const Vector<Real>& F_cheb) const {
+    ObjIntegral(IntegralF, F_cheb, elem_lst, node_obj_idx.Dim(), far_wts, far_cnt, obj_elem_cnt, obj_elem_dsp, comm_);
+  }
+
+  template <class Real> void RigidBodyList<Real>::ObjIntegral(Vector<Real>& IntegralF, const Vector<Real>& F_cheb, const SlenderElemList<Real>& elem_lst, const Long Nnodes_loc, const Vector<Real>& far_wts, const Vector<Long>& far_cnt, const Vector<Long>& obj_elem_cnt, const Vector<Long>& obj_elem_dsp, const Comm comm) {
+    const Long Nobj = obj_elem_cnt.Dim();
+    if (!Nobj) {
+      if (IntegralF.Dim()) IntegralF.ReInit(0);
       return;
     }
 
-    const Integer dof = F.Dim() / wts.Dim();
-    IntegralF.ReInit(cnt.Dim() * dof); IntegralF = 0;
-    for (Long elem = 0; elem < cnt.Dim(); elem++) {
-      for (Long i = 0; i < cnt[elem]; i++) {
-        for(Long k = 0; k < dof; k++) {
-          IntegralF[elem*dof+k] += F[(dsp[elem]+i)*dof+k] * wts[dsp[elem]+i];
+    const Long Nelem_loc = elem_lst.Size();
+    SCTL_ASSERT(far_cnt.Dim() == Nelem_loc);
+    const Long dof_loc = (Nnodes_loc ? F_cheb.Dim() / Nnodes_loc : 0);
+
+    ScratchBuf<Real> Fe_local_buf(Nelem_loc * dof_loc);
+    Vector<Real> Fe_local(Fe_local_buf);
+    { // Fe_local <-- integral of F_cheb over each local element, with the far-field quadrature
+      ScratchBuf<Long> far_dsp(Nelem_loc);
+      ScratchBuf<Real> F_buf(far_wts.Dim() * dof_loc);
+      Vector<Real> F(F_buf);
+      omp_par::scan(far_cnt.begin(), far_dsp.begin(), Nelem_loc, (Long)0);
+      if (Nnodes_loc) elem_lst.GetFarFieldDensity(F, F_cheb);
+      Fe_local = 0;
+      for (Long elem = 0; elem < Nelem_loc; elem++) {
+        for (Long i = 0; i < far_cnt[elem]; i++) {
+          for (Long k = 0; k < dof_loc; k++) {
+            Fe_local[elem*dof_loc+k] += F[(far_dsp[elem]+i)*dof_loc+k] * far_wts[far_dsp[elem]+i];
+          }
         }
       }
     }
-  }
 
-  template <class Real> void RigidBodyList<Real>::ObjIntegral(Vector<Real>& IntegralF, const Vector<Real>& F_cheb, const SlenderElemList<Real>& elem_lst, const Vector<Long>& obj_elem_cnt, const Vector<Long>& obj_elem_dsp, const Comm comm) {
-    Vector<Real> Fe, Fe_local;
-    SlenderElemIntegral(Fe_local, F_cheb, elem_lst);
-    Fe = Allgather(Fe_local, comm);
-
-    const Long Nobj = obj_elem_cnt.Dim();
-    const Long Nelem = obj_elem_dsp[Nobj-1] + obj_elem_cnt[Nobj-1];
-    const Integer dof = Fe.Dim() / Nelem;
-
-    IntegralF.ReInit(Nobj * dof); IntegralF = 0;
-    for (Long obj = 0; obj < Nobj; obj++) {
-      for (Long i = 0; i < obj_elem_cnt[obj]; i++) {
-        for (Long k = 0; k < dof; k++) {
-          IntegralF[obj*dof+k] += Fe[(obj_elem_dsp[obj]+i)*dof+k];
+    Allgather(Fe_local, comm, [&IntegralF,&obj_elem_cnt,&obj_elem_dsp,Nobj](const Vector<Real>& Fe) { // IntegralF <-- sum of Fe over the elements of each object
+      const Long Nelem = obj_elem_dsp[Nobj-1] + obj_elem_cnt[Nobj-1];
+      const Integer dof = (Nelem ? Fe.Dim() / Nelem : 0);
+      if (IntegralF.Dim() != Nobj * dof) IntegralF.ReInit(Nobj * dof);
+      IntegralF = 0;
+      for (Long obj = 0; obj < Nobj; obj++) {
+        for (Long i = 0; i < obj_elem_cnt[obj]; i++) {
+          for (Long k = 0; k < dof; k++) {
+            IntegralF[obj*dof+k] += Fe[(obj_elem_dsp[obj]+i)*dof+k];
+          }
         }
       }
-    }
+    });
   }
 
   template <class Real> template <class ValueType> void RigidBodyList<Real>::InitElemList(Long& loc_elem_cnt, Long& loc_elem_dsp, SlenderElemList<Real>& elem_lst, const Vector<Long>& ElemOrder, const Vector<Long>& FourierOrder, const Vector<ValueType>& X, const Vector<ValueType>& R, const Vector<ValueType>& OrientVec, const Comm comm) {
@@ -1335,9 +1403,9 @@ namespace sctl {
 
     const Long Nelem = ElemOrder.Dim();
     if (Nelem) { // Set loc_elem_cnt, loc_elem_dsp // TODO: use better cost estimate
-      Vector<Long> node_cnt(Nelem), node_dsp(Nelem); node_dsp = 0;
+      ScratchBuf<Long> node_cnt(Nelem), node_dsp(Nelem);
       for (Long i = 0; i < Nelem; i++) node_cnt[i] = ElemOrder[i] * FourierOrder[i] * FourierOrder[i];
-      omp_par::scan(node_cnt.begin(), node_dsp.begin(), Nelem);
+      omp_par::scan(node_cnt.begin(), node_dsp.begin(), Nelem, (Long)0);
       const Long Nnodes = node_cnt[Nelem-1] + node_dsp[Nelem-1];
 
       const Long Np = comm.Size();
@@ -1410,48 +1478,45 @@ namespace sctl {
       for (const auto& x : V) sum+= x;
       return sum;
     };
-    Vector<Long> elem_node_dsp, elem_node_cnt, elem_node_cnt_loc;
+    ScratchBuf<Long> elem_node_cnt_loc_buf(elem_lst.Size());
+    Vector<Long> elem_node_cnt_loc(elem_node_cnt_loc_buf);
     elem_lst.GetNodeCoord(nullptr, nullptr, &elem_node_cnt_loc);
     const Long Nloc = sum(elem_node_cnt_loc);
 
-    elem_node_cnt = Allgather(elem_node_cnt_loc, comm); // parallelize
-    const Long Nelem = elem_node_cnt.Dim();
-    const Long Nobj = obj_elem_cnt.Dim();
+    Allgather(elem_node_cnt_loc, comm, [&node_obj_idx,&obj_elem_cnt,&obj_elem_dsp](const Vector<Long>& elem_node_cnt) { // parallelize
+      const Long Nelem = elem_node_cnt.Dim();
+      const Long Nobj = obj_elem_cnt.Dim();
 
-    elem_node_dsp.ReInit(Nelem); elem_node_dsp = 0;
-    omp_par::scan(elem_node_cnt.begin(), elem_node_dsp.begin(), Nelem);
+      ScratchBuf<Long> elem_node_dsp(Nelem);
+      omp_par::scan(elem_node_cnt.begin(), elem_node_dsp.begin(), Nelem, (Long)0);
 
-    node_obj_idx.ReInit(elem_node_dsp[Nelem-1] + elem_node_cnt[Nelem-1]);
-    for (Long obj = 0; obj < Nobj; obj++) {
-      for (Long i = 0; i < obj_elem_cnt[obj]; i++) {
-        const Long elem = obj_elem_dsp[obj] + i;
-        for (Long j = 0; j < elem_node_cnt[elem]; j++) {
-          const Long node_idx = elem_node_dsp[elem] + j;
-          node_obj_idx[node_idx] = obj;
+      node_obj_idx.ReInit(Nelem ? elem_node_dsp[Nelem-1] + elem_node_cnt[Nelem-1] : 0);
+      for (Long obj = 0; obj < Nobj; obj++) {
+        for (Long i = 0; i < obj_elem_cnt[obj]; i++) {
+          const Long elem = obj_elem_dsp[obj] + i;
+          for (Long j = 0; j < elem_node_cnt[elem]; j++) {
+            const Long node_idx = elem_node_dsp[elem] + j;
+            node_obj_idx[node_idx] = obj;
+          }
         }
       }
-    }
+    });
 
     if (comm.Rank()) node_obj_idx.ReInit(0);
     comm.PartitionN(node_obj_idx, Nloc);
   }
 
-  template <class Real> void RigidBodyList<Real>::RigidBodyVelocity(Vector<Real>& U, const Vector<Real> Uobj, const Vector<Real> Omega_obj, const Vector<Real> Xc, const SlenderElemList<Real>& elem_lst, const Vector<Long>& obj_elem_cnt, const Vector<Long>& obj_elem_dsp, const Comm comm) {
-    Vector<Long> node_obj_idx;
-    GetNodeObjIdx(node_obj_idx, elem_lst, obj_elem_cnt, obj_elem_dsp, comm);
+  template <class Real> void RigidBodyList<Real>::RigidBodyVelocity(Vector<Real>& U, const Vector<Real>& Uobj, const Vector<Real>& Omega_obj, const Vector<Real>& Xc, const Vector<Real>& X, const Vector<Long>& node_obj_idx) {
     const Long Nloc = node_obj_idx.Dim();
-
-    Vector<Real> X_cheb;
-    elem_lst.GetNodeCoord(&X_cheb, nullptr, nullptr);
-
+    SCTL_ASSERT(X.Dim() == Nloc*COORD_DIM);
     if (U.Dim() != Nloc*COORD_DIM) U.ReInit(Nloc*COORD_DIM);
     for (Long i = 0; i < Nloc; i++) {
       const Long obj = node_obj_idx[i];
 
       StaticArray<Real,COORD_DIM> R;
-      R[0] = X_cheb[i*COORD_DIM+0] - Xc[obj*COORD_DIM+0];
-      R[1] = X_cheb[i*COORD_DIM+1] - Xc[obj*COORD_DIM+1];
-      R[2] = X_cheb[i*COORD_DIM+2] - Xc[obj*COORD_DIM+2];
+      R[0] = X[i*COORD_DIM+0] - Xc[obj*COORD_DIM+0];
+      R[1] = X[i*COORD_DIM+1] - Xc[obj*COORD_DIM+1];
+      R[2] = X[i*COORD_DIM+2] - Xc[obj*COORD_DIM+2];
 
       StaticArray<Real,COORD_DIM> TxR;
       TxR[0] = Omega_obj[obj*COORD_DIM+1] * R[2] - Omega_obj[obj*COORD_DIM+2] * R[1];
